@@ -16,9 +16,9 @@ INITIAL_PRODUCTS = [
 
 
 def get_connection():
-    """建立資料庫連線。"""
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys = ON")
     return conn
 
 
@@ -32,6 +32,36 @@ def init_db():
                 price INTEGER NOT NULL CHECK (price >= 0),
                 description TEXT NOT NULL DEFAULT '',
                 image TEXT NOT NULL DEFAULT ''
+            )
+        """)
+
+                # 訂單主表
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS orders (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                total INTEGER NOT NULL CHECK (total >= 0),
+                status TEXT NOT NULL DEFAULT 'pending',
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
+        # 訂單商品明細
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS order_items (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                order_id INTEGER NOT NULL,
+                product_id INTEGER,
+                product_name TEXT NOT NULL,
+                quantity INTEGER NOT NULL CHECK (quantity > 0),
+                unit_price INTEGER NOT NULL CHECK (unit_price >= 0),
+
+                FOREIGN KEY (order_id)
+                    REFERENCES orders(id)
+                    ON DELETE CASCADE,
+
+                FOREIGN KEY (product_id)
+                    REFERENCES products(id)
+                    ON DELETE SET NULL
             )
         """)
 
@@ -97,3 +127,76 @@ def add_product(name, price, description="", image=""):
         """, (name.strip(), price, description, image))
 
         return cursor.lastrowid
+
+
+def create_order(cart):
+    """
+    根據購物車建立訂單。
+    cart 格式：{"1": 2, "3": 1}
+    回傳：(order_id, total)
+    """
+
+    if not cart:
+        raise ValueError("購物車是空的")
+
+    with get_connection() as conn:
+        items = []
+        total = 0
+
+        # 重新從資料庫讀取商品價格
+        for product_id, quantity in cart.items():
+
+            product_id = int(product_id)
+
+            if not isinstance(quantity, int) or quantity <= 0:
+                raise ValueError("商品數量不正確")
+
+            product = conn.execute("""
+                SELECT id, name, price
+                FROM products
+                WHERE id = ?
+            """, (product_id,)).fetchone()
+
+            if product is None:
+                raise ValueError("商品不存在")
+
+            subtotal = product["price"] * quantity
+            total += subtotal
+
+            items.append({
+                "product_id": product["id"],
+                "product_name": product["name"],
+                "quantity": quantity,
+                "unit_price": product["price"],
+            })
+
+        # 建立訂單主表
+        cursor = conn.execute("""
+            INSERT INTO orders (total, status)
+            VALUES (?, 'pending')
+        """, (total,))
+
+        order_id = cursor.lastrowid
+
+        # 建立訂單明細
+        conn.executemany("""
+            INSERT INTO order_items (
+                order_id,
+                product_id,
+                product_name,
+                quantity,
+                unit_price
+            )
+            VALUES (?, ?, ?, ?, ?)
+        """, [
+            (
+                order_id,
+                item["product_id"],
+                item["product_name"],
+                item["quantity"],
+                item["unit_price"],
+            )
+            for item in items
+        ])
+
+        return order_id, total

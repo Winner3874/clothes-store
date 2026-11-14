@@ -1,21 +1,22 @@
 <!DOCTYPE html>
-<html lang="zh-TW">
+<html lang="zh-Hant">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>結帳流程示範</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>訂單成立</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 </head>
-<body class="bg-light">
-    <main class="container py-5">
-        <div class="card mx-auto text-center p-4 success-card">
-            <div class="display-4" aria-hidden="true">🧾</div>
-            <h1 class="h3 mt-3">結帳流程示範完成</h1>
-            <p>示範金額：<strong>NT$ {{ "{:,}".format(total) }}</strong></p>
-            <p class="text-muted">這不是正式訂單，也沒有實際付款。正式版本需要建立訂單並串接金流。</p>
-            <a class="btn btn-primary" href="{{ url_for('index') }}">回到商品列表</a>
-        </div>
+<body>
+
+    <main>
+        <h1>訂單成立！</h1>
+
+        <p>訂單編號：#{{ order_id }}</p>
+        <p>訂單金額：NT$ {{ total }}</p>
+        <p>目前付款狀態：待付款</p>
+
+        <a href="{{ url_for('index') }}">返回首頁</a>
     </main>
+
 </body>
 </html>

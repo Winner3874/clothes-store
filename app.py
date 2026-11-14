@@ -7,6 +7,7 @@ from database import (
     init_db,
     get_all_products,
     get_product_by_id,
+    create_order,
 )
 
 app = Flask(__name__)
@@ -79,16 +80,23 @@ def clear_cart():
 
 @app.post("/checkout")
 def checkout():
-    cart_items, total = get_cart_items()
+    cart = session.get("cart", {})
 
-    if not cart_items:
+    if not cart:
         return redirect(url_for("index"))
 
+    try:
+        order_id, total = create_order(cart)
+
+    except (ValueError, TypeError):
+        return redirect(url_for("index"))
+
+    # 訂單建立成功後才清空購物車
     session.pop("cart", None)
 
-    # 目前僅為展示用結帳，不會真的收款或建立正式訂單
     return render_template(
         "checkout_success.html",
+        order_id=order_id,
         total=total,
     )
 
