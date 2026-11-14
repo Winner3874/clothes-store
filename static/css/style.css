@@ -290,6 +290,14 @@ section > h1::before {
     width: 56px;
     padding: 4px;
     text-align: center;
+    appearance: textfield;
+    -moz-appearance: textfield;
+}
+
+.quantity-form input::-webkit-inner-spin-button,
+.quantity-form input::-webkit-outer-spin-button {
+    margin: 0;
+    -webkit-appearance: none;
 }
 
 .quantity-step {

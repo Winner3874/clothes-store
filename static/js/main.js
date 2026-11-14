@@ -1,17 +1,19 @@
 document.addEventListener("DOMContentLoaded", () => {
     const checkoutForm = document.querySelector("[data-confirm-checkout]");
+    const clearCartForm = document.querySelector("[data-confirm-clear]");
 
-    if (checkoutForm) {
-        checkoutForm.addEventListener("submit", (event) => {
-            const confirmed = window.confirm(
-                "確定要送出訂單嗎？送出後購物車會清空。"
-            );
+    const confirmForm = (form, message) => {
+        if (form) {
+            form.addEventListener("submit", (event) => {
+                if (!window.confirm(message)) {
+                    event.preventDefault();
+                }
+            });
+        }
+    };
 
-            if (!confirmed) {
-                event.preventDefault();
-            }
-        });
-    }
+    confirmForm(checkoutForm, "確定要送出訂單嗎？送出後購物車會清空。");
+    confirmForm(clearCartForm, "確定要清空購物車嗎？");
 
     const formatPrice = (amount) => new Intl.NumberFormat("zh-TW").format(amount);
 
@@ -41,12 +43,21 @@ document.addEventListener("DOMContentLoaded", () => {
         const quantityInput = row.querySelector("[data-cart-quantity]");
         quantityInput.addEventListener("input", updateCartTotals);
 
+        const saveQuantity = () => {
+            const quantity = Number.parseInt(quantityInput.value, 10) || 1;
+            quantityInput.value = Math.min(99, Math.max(1, quantity));
+            updateCartTotals();
+            quantityInput.form.requestSubmit();
+        };
+
+        quantityInput.addEventListener("change", saveQuantity);
+
         row.querySelectorAll("[data-quantity-step]").forEach((button) => {
             button.addEventListener("click", () => {
                 const step = Number.parseInt(button.dataset.quantityStep, 10);
                 const quantity = Number.parseInt(quantityInput.value, 10) || 1;
                 quantityInput.value = Math.min(99, Math.max(1, quantity + step));
-                updateCartTotals();
+                saveQuantity();
             });
         });
     });
