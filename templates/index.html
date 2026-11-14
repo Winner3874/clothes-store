@@ -73,13 +73,28 @@
                         {% if cart_items %}
                         <ul class="list-group list-group-flush mb-3">
                             {% for item in cart_items %}
-                            <li class="list-group-item d-flex justify-content-between align-items-start px-0 gap-3">
-                                <div><h3 class="h6 my-0">{{ item.name }}</h3><small class="text-muted">NT$ {{ "{:,}".format(item.price) }} × {{ item.qty }}</small></div>
-                                <span class="text-nowrap">NT$ {{ "{:,}".format(item.subtotal) }}</span>
+                            <li class="list-group-item cart-line px-0" data-cart-row data-unit-price="{{ item.price }}">
+                                <div class="d-flex justify-content-between align-items-start gap-2">
+                                    <h3 class="h6 my-0">{{ item.name }}</h3>
+                                    <span class="text-nowrap">NT$ <span data-line-total>{{ "{:,}".format(item.subtotal) }}</span></span>
+                                </div>
+                                <small class="text-muted">單價 NT$ {{ "{:,}".format(item.price) }}</small>
+                                <div class="d-flex align-items-center justify-content-between gap-2 mt-2">
+                                    <form class="quantity-form" action="{{ url_for('update_cart_quantity', product_id=item.id) }}" method="post">
+                                        <button class="quantity-step" type="button" data-quantity-step="-1" aria-label="減少{{ item.name }}數量">−</button>
+                                        <label class="visually-hidden" for="quantity-{{ item.id }}">{{ item.name }}數量</label>
+                                        <input id="quantity-{{ item.id }}" class="form-control form-control-sm" type="number" name="quantity" min="1" max="99" value="{{ item.qty }}" data-cart-quantity>
+                                        <button class="quantity-step" type="button" data-quantity-step="1" aria-label="增加{{ item.name }}數量">+</button>
+                                        <button class="btn btn-outline-secondary btn-sm" type="submit">更新</button>
+                                    </form>
+                                    <form action="{{ url_for('remove_from_cart', product_id=item.id) }}" method="post">
+                                        <button class="btn btn-link btn-sm text-danger p-0" type="submit">移除</button>
+                                    </form>
+                                </div>
                             </li>
                             {% endfor %}
                         </ul>
-                        <div class="d-flex justify-content-between align-items-center mb-3"><span>商品總額</span><strong class="fs-5">NT$ {{ "{:,}".format(total) }}</strong></div>
+                        <div class="d-flex justify-content-between align-items-center mb-3"><span>商品總額</span><strong class="fs-5">NT$ <span data-cart-total>{{ "{:,}".format(total) }}</span></strong></div>
                         <div class="d-grid gap-2">
                             <form action="{{ url_for('checkout') }}" method="post" data-confirm-checkout><button class="btn btn-success w-100" type="submit">前往結帳</button></form>
                             <form action="{{ url_for('clear_cart') }}" method="post"><button class="btn btn-outline-danger btn-sm w-100" type="submit">清空購物車</button></form>

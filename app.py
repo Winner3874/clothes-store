@@ -82,8 +82,41 @@ def add_to_cart(product_id):
     cart = session.get("cart", {})
     key = str(product_id)
 
-    cart[key] = cart.get(key, 0) + 1
+    current_quantity = cart.get(key, 0)
+    if not isinstance(current_quantity, int) or current_quantity < 0:
+        current_quantity = 0
+    cart[key] = min(current_quantity + 1, 99)
     session["cart"] = cart
+
+    return redirect(url_for("index"))
+
+
+@app.post("/cart/update/<int:product_id>")
+def update_cart_quantity(product_id):
+    cart = session.get("cart", {})
+    key = str(product_id)
+
+    try:
+        quantity = int(request.form.get("quantity", ""))
+    except (TypeError, ValueError):
+        return redirect(url_for("index"))
+
+    if key in cart and get_product_by_id(product_id) and 1 <= quantity <= 99:
+        cart[key] = quantity
+        session["cart"] = cart
+
+    return redirect(url_for("index"))
+
+
+@app.post("/cart/remove/<int:product_id>")
+def remove_from_cart(product_id):
+    cart = session.get("cart", {})
+    cart.pop(str(product_id), None)
+
+    if cart:
+        session["cart"] = cart
+    else:
+        session.pop("cart", None)
 
     return redirect(url_for("index"))
 
