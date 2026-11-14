@@ -44,15 +44,46 @@ def init_db():
                 "ALTER TABLE products ADD COLUMN category TEXT NOT NULL DEFAULT '其他'"
             )
 
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                email TEXT NOT NULL UNIQUE COLLATE NOCASE,
+                password_hash TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS favorites (
+                user_id INTEGER NOT NULL,
+                product_id INTEGER NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (user_id, product_id),
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+                FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
+            )
+        """)
+
                 # 訂單主表
         conn.execute("""
             CREATE TABLE IF NOT EXISTS orders (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER,
                 total INTEGER NOT NULL CHECK (total >= 0),
                 status TEXT NOT NULL DEFAULT 'pending',
-                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
             )
         """)
+
+        order_columns = {
+            row["name"] for row in conn.execute("PRAGMA table_info(orders)")
+        }
+        if "user_id" not in order_columns:
+            conn.execute(
+                "ALTER TABLE orders ADD COLUMN user_id INTEGER REFERENCES users(id) ON DELETE SET NULL"
+            )
 
         # 訂單商品明細
         conn.execute("""
@@ -132,6 +163,91 @@ def get_product_categories():
         return [row["category"] for row in rows]
 
 
+def create_user(name, email, password_hash):
+    with get_connection() as conn:
+        cursor = conn.execute(
+            "INSERT INTO users (name, email, password_hash) VALUES (?, ?, ?)",
+            (name.strip(), email.strip().lower(), password_hash),
+        )
+        return cursor.lastrowid
+
+
+def get_user_by_email(email):
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT id, name, email, password_hash FROM users WHERE email = ? COLLATE NOCASE",
+            (email.strip(),),
+        ).fetchone()
+        return dict(row) if row else None
+
+
+def get_user_by_id(user_id):
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT id, name, email FROM users WHERE id = ?", (user_id,)
+        ).fetchone()
+        return dict(row) if row else None
+
+
+def get_favorite_product_ids(user_id):
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT product_id FROM favorites WHERE user_id = ?", (user_id,)
+        ).fetchall()
+        return {row["product_id"] for row in rows}
+
+
+def toggle_favorite(user_id, product_id):
+    with get_connection() as conn:
+        existing = conn.execute(
+            "SELECT 1 FROM favorites WHERE user_id = ? AND product_id = ?",
+            (user_id, product_id),
+        ).fetchone()
+        if existing:
+            conn.execute(
+                "DELETE FROM favorites WHERE user_id = ? AND product_id = ?",
+                (user_id, product_id),
+            )
+            return False
+
+        conn.execute(
+            "INSERT INTO favorites (user_id, product_id) VALUES (?, ?)",
+            (user_id, product_id),
+        )
+        return True
+
+
+def get_favorite_products(user_id):
+    with get_connection() as conn:
+        rows = conn.execute("""
+            SELECT p.id, p.name, p.price, p.description AS desc,
+                   p.image AS img, p.category
+            FROM favorites f
+            JOIN products p ON p.id = f.product_id
+            WHERE f.user_id = ?
+            ORDER BY f.created_at DESC
+        """, (user_id,)).fetchall()
+        return [dict(row) for row in rows]
+
+
+def get_orders_by_user(user_id):
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT id, total, status, created_at FROM orders WHERE user_id = ? ORDER BY id DESC",
+            (user_id,),
+        ).fetchall()
+        orders = []
+        for row in rows:
+            order = dict(row)
+            items = conn.execute("""
+                SELECT product_name, quantity, unit_price
+                FROM order_items WHERE order_id = ? ORDER BY id
+            """, (order["id"],)).fetchall()
+            order["items"] = [dict(item) for item in items]
+            orders.append(order)
+        return orders
+
+
 def add_product(name, price, description="", image=""):
     """新增商品，回傳新商品的 ID。"""
     if not name.strip():
@@ -150,7 +266,7 @@ def add_product(name, price, description="", image=""):
         return cursor.lastrowid
 
 
-def create_order(cart):
+def create_order(cart, user_id=None):
     """
     根據購物車建立訂單。
     cart 格式：{"1": 2, "3": 1}
@@ -193,9 +309,9 @@ def create_order(cart):
 
         # 建立訂單主表
         cursor = conn.execute("""
-            INSERT INTO orders (total, status)
-            VALUES (?, 'pending')
-        """, (total,))
+            INSERT INTO orders (user_id, total, status)
+            VALUES (?, ?, 'pending')
+        """, (user_id, total))
 
         order_id = cursor.lastrowid
 

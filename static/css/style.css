@@ -133,6 +133,13 @@ section > h1::before {
     box-shadow: var(--shadow-card);
 }
 
+.auth-card {
+    max-width: 480px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-card);
+    box-shadow: var(--shadow-card);
+}
+
 .product-detail-icon {
     display: grid;
     min-height: 280px;

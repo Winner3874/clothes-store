@@ -11,11 +11,24 @@
     <nav class="navbar navbar-dark bg-dark mb-4">
         <div class="container">
             <a class="navbar-brand" href="{{ url_for('index') }}">StyleLab</a>
-            <span class="text-muted">日常穿搭選物</span>
+            <div class="d-flex align-items-center gap-3">
+                <span class="text-muted d-none d-md-inline">日常穿搭選物</span>
+                {% if current_user %}
+                <a class="nav-link" href="{{ url_for('favorites') }}">我的收藏</a>
+                <a class="nav-link" href="{{ url_for('order_history') }}">購買紀錄</a>
+                <form action="{{ url_for('logout') }}" method="post"><button class="btn btn-outline-secondary btn-sm" type="submit">登出</button></form>
+                {% else %}
+                <a class="nav-link" href="{{ url_for('login') }}">登入</a>
+                <a class="btn btn-dark btn-sm" href="{{ url_for('register') }}">註冊</a>
+                {% endif %}
+            </div>
         </div>
     </nav>
 
     <main class="container pb-5">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+        {% for category, message in messages %}<div class="alert alert-{{ category }}" role="status">{{ message }}</div>{% endfor %}
+        {% endwith %}
         <div class="row g-4">
             <section class="col-lg-8">
                 <h1 class="h4 mb-3">探索商品</h1>
@@ -55,6 +68,12 @@
                                     <form action="{{ url_for('add_to_cart', product_id=p.id) }}" method="post">
                                         <button class="btn btn-primary" type="submit">加入購物車</button>
                                     </form>
+                                    {% if current_user %}
+                                    <form action="{{ url_for('favorite_toggle', product_id=p.id) }}" method="post">
+                                        <input type="hidden" name="source" value="listing">
+                                        <button class="btn btn-outline-secondary btn-sm" type="submit">{% if p.id in favorite_product_ids %}取消收藏{% else %}收藏{% endif %}</button>
+                                    </form>
+                                    {% endif %}
                                 </div>
                             </div>
                         </article>

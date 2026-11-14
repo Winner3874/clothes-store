@@ -9,9 +9,24 @@
 </head>
 <body class="bg-light">
     <nav class="navbar navbar-dark bg-dark mb-4">
-        <div class="container"><a class="navbar-brand" href="{{ url_for('index') }}">StyleLab</a><span class="text-muted">日常穿搭選物</span></div>
+        <div class="container">
+            <a class="navbar-brand" href="{{ url_for('index') }}">StyleLab</a>
+            <div class="d-flex align-items-center gap-3">
+                {% if current_user %}
+                <a class="nav-link" href="{{ url_for('favorites') }}">我的收藏</a>
+                <a class="nav-link" href="{{ url_for('order_history') }}">購買紀錄</a>
+                <form action="{{ url_for('logout') }}" method="post"><button class="btn btn-outline-secondary btn-sm" type="submit">登出</button></form>
+                {% else %}
+                <a class="nav-link" href="{{ url_for('login') }}">登入</a>
+                <a class="btn btn-dark btn-sm" href="{{ url_for('register') }}">註冊</a>
+                {% endif %}
+            </div>
+        </div>
     </nav>
     <main class="container pb-5">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+        {% for category, message in messages %}<div class="alert alert-{{ category }}" role="status">{{ message }}</div>{% endfor %}
+        {% endwith %}
         <p><a href="{{ url_for('index') }}">← 返回商品列表</a></p>
         <article class="card product-detail-card mx-auto">
             <div class="product-detail-icon" aria-hidden="true">{{ product.img }}</div>
@@ -20,9 +35,19 @@
                 <h1 class="h2 mt-2">{{ product.name }}</h1>
                 <p class="text-muted mt-3">{{ product.desc }}</p>
                 <p class="h3 fw-bold mt-4">NT$ {{ "{:,}".format(product.price) }}</p>
-                <form action="{{ url_for('add_to_cart', product_id=product.id) }}" method="post" class="mt-4">
-                    <button class="btn btn-primary" type="submit">加入購物車</button>
-                </form>
+                <div class="d-flex gap-2 mt-4">
+                    <form action="{{ url_for('add_to_cart', product_id=product.id) }}" method="post">
+                        <button class="btn btn-primary" type="submit">加入購物車</button>
+                    </form>
+                    {% if current_user %}
+                    <form action="{{ url_for('favorite_toggle', product_id=product.id) }}" method="post">
+                        <input type="hidden" name="source" value="detail">
+                        <button class="btn btn-outline-secondary" type="submit">{% if is_favorite %}取消收藏{% else %}收藏商品{% endif %}</button>
+                    </form>
+                    {% else %}
+                    <a class="btn btn-outline-secondary" href="{{ url_for('login') }}">登入後收藏</a>
+                    {% endif %}
+                </div>
             </div>
         </article>
     </main>

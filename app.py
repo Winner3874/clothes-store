@@ -1,7 +1,10 @@
 
 import os
+import sqlite3
+from functools import wraps
 
-from flask import Flask, abort, redirect, render_template, request, session, url_for
+from flask import Flask, abort, flash, redirect, render_template, request, session, url_for
+from werkzeug.security import check_password_hash, generate_password_hash
 
 from database import (
     init_db,
@@ -10,6 +13,13 @@ from database import (
     get_product_categories,
     create_order,
     get_order_details,
+    create_user,
+    get_user_by_email,
+    get_user_by_id,
+    get_favorite_product_ids,
+    get_favorite_products,
+    toggle_favorite,
+    get_orders_by_user,
 )
 
 app = Flask(__name__)
@@ -21,6 +31,31 @@ app.secret_key = os.environ.get(
 
 # 啟動時確認資料表存在
 init_db()
+
+
+def get_current_user():
+    user_id = session.get("user_id")
+    if user_id is None:
+        return None
+    user = get_user_by_id(user_id)
+    if user is None:
+        session.pop("user_id", None)
+    return user
+
+
+@app.context_processor
+def inject_current_user():
+    return {"current_user": get_current_user()}
+
+
+def login_required(view):
+    @wraps(view)
+    def wrapped_view(*args, **kwargs):
+        if get_current_user() is None:
+            flash("請先登入會員。", "warning")
+            return redirect(url_for("login"))
+        return view(*args, **kwargs)
+    return wrapped_view
 
 
 def get_cart_items():
@@ -53,6 +88,10 @@ def index():
     products = get_all_products(search=search, category=category)
     categories = get_product_categories()
     cart_items, total = get_cart_items()
+    current_user = get_current_user()
+    favorite_product_ids = (
+        get_favorite_product_ids(current_user["id"]) if current_user else set()
+    )
 
     return render_template(
         "index.html",
@@ -62,6 +101,7 @@ def index():
         categories=categories,
         search=search,
         selected_category=category,
+        favorite_product_ids=favorite_product_ids,
     )
 
 
@@ -70,7 +110,103 @@ def product_detail(product_id):
     product = get_product_by_id(product_id)
     if product is None:
         abort(404)
-    return render_template("product_detail.html", product=product)
+    current_user = get_current_user()
+    is_favorite = (
+        product_id in get_favorite_product_ids(current_user["id"])
+        if current_user else False
+    )
+    return render_template(
+        "product_detail.html", product=product, is_favorite=is_favorite
+    )
+
+
+@app.route("/register", methods=["GET", "POST"])
+def register():
+    if request.method == "POST":
+        name = request.form.get("name", "").strip()
+        email = request.form.get("email", "").strip().lower()
+        password = request.form.get("password", "")
+
+        if not name or len(name) > 80:
+            flash("請輸入 1 到 80 個字的姓名。", "danger")
+        elif "@" not in email or "." not in email or len(email) > 254:
+            flash("請輸入有效的電子郵件地址。", "danger")
+        elif len(password) < 8 or len(password) > 256:
+            flash("密碼長度需為 8 到 256 個字元。", "danger")
+        elif get_user_by_email(email):
+            flash("這個電子郵件已註冊，請直接登入。", "warning")
+        else:
+            try:
+                user_id = create_user(
+                    name, email, generate_password_hash(password)
+                )
+            except sqlite3.IntegrityError:
+                flash("這個電子郵件已註冊，請直接登入。", "warning")
+            else:
+                session["user_id"] = user_id
+                flash("註冊成功，歡迎加入！", "success")
+                return redirect(url_for("index"))
+
+    return render_template("auth.html", mode="register")
+
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    if request.method == "POST":
+        email = request.form.get("email", "").strip().lower()
+        password = request.form.get("password", "")
+        user = get_user_by_email(email)
+
+        if user is None or not check_password_hash(user["password_hash"], password):
+            flash("電子郵件或密碼不正確。", "danger")
+        else:
+            session["user_id"] = user["id"]
+            flash(f"歡迎回來，{user['name']}！", "success")
+            return redirect(url_for("index"))
+
+    return render_template("auth.html", mode="login")
+
+
+@app.post("/logout")
+def logout():
+    session.pop("user_id", None)
+    flash("你已登出。", "success")
+    return redirect(url_for("index"))
+
+
+@app.get("/favorites")
+@login_required
+def favorites():
+    user = get_current_user()
+    products = get_favorite_products(user["id"])
+    return render_template("favorites.html", products=products)
+
+
+@app.post("/favorites/toggle/<int:product_id>")
+def favorite_toggle(product_id):
+    if get_product_by_id(product_id) is None:
+        abort(404)
+    user = get_current_user()
+    if user is None:
+        flash("請先登入會員，再收藏商品。", "warning")
+        return redirect(url_for("login"))
+
+    added = toggle_favorite(user["id"], product_id)
+    flash("已加入收藏。" if added else "已取消收藏。", "success")
+    source = request.form.get("source")
+    if source == "favorites":
+        return redirect(url_for("favorites"))
+    if source == "listing":
+        return redirect(url_for("index"))
+    return redirect(url_for("product_detail", product_id=product_id))
+
+
+@app.get("/orders")
+@login_required
+def order_history():
+    user = get_current_user()
+    orders = get_orders_by_user(user["id"])
+    return render_template("order_history.html", orders=orders)
 
 
 @app.post("/add/<int:product_id>")
@@ -135,7 +271,10 @@ def checkout():
         return redirect(url_for("index"))
 
     try:
-        order_id, total = create_order(cart)
+        user = get_current_user()
+        order_id, total = create_order(
+            cart, user_id=user["id"] if user else None
+        )
 
     except (ValueError, TypeError):
         return redirect(url_for("index"))
