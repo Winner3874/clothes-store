@@ -1,13 +1,15 @@
 
 import os
 
-from flask import Flask, redirect, render_template, session, url_for
+from flask import Flask, abort, redirect, render_template, request, session, url_for
 
 from database import (
     init_db,
     get_all_products,
     get_product_by_id,
+    get_product_categories,
     create_order,
+    get_order_details,
 )
 
 app = Flask(__name__)
@@ -46,7 +48,10 @@ def get_cart_items():
 
 @app.get("/")
 def index():
-    products = get_all_products()
+    search = request.args.get("q", "").strip()
+    category = request.args.get("category", "").strip()
+    products = get_all_products(search=search, category=category)
+    categories = get_product_categories()
     cart_items, total = get_cart_items()
 
     return render_template(
@@ -54,7 +59,18 @@ def index():
         products=products,
         cart_items=cart_items,
         total=total,
+        categories=categories,
+        search=search,
+        selected_category=category,
     )
+
+
+@app.get("/product/<int:product_id>")
+def product_detail(product_id):
+    product = get_product_by_id(product_id)
+    if product is None:
+        abort(404)
+    return render_template("product_detail.html", product=product)
 
 
 @app.post("/add/<int:product_id>")
@@ -91,13 +107,15 @@ def checkout():
     except (ValueError, TypeError):
         return redirect(url_for("index"))
 
+    # 從資料庫重新讀取剛建立的訂單
+    order = get_order_details(order_id)
+
     # 訂單建立成功後才清空購物車
     session.pop("cart", None)
 
     return render_template(
         "checkout_success.html",
-        order_id=order_id,
-        total=total,
+        order=order,
     )
 
 

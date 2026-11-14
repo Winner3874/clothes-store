@@ -8,10 +8,10 @@ DB_PATH = Path(__file__).resolve().parent / "store.db"
 
 # 第一次建立資料庫時使用的範例商品
 INITIAL_PRODUCTS = [
-    ("極簡機械鍵盤", 2500, "手感極佳的青軸機械鍵盤", "⌨️"),
-    ("無線電競滑鼠", 1200, "超低延遲、人體工學設計", "🖱️"),
-    ("抗噪藍牙耳機", 3800, "沉浸式音質，主動降噪功能", "🎧"),
-    ("4K 護眼螢幕", 8900, "27 吋 IPS 面板，色彩精準", "🖥️"),
+    ("經典白襯衫", 1280, "採用舒適透氣的棉質布料，適合日常穿搭。", "👔", "上衣"),
+    ("休閒直筒長褲", 1680, "俐落直筒剪裁，搭配襯衫或 T 恤都合適。", "👖", "褲裝"),
+    ("輕量連帽外套", 2280, "輕量防風設計，適合換季與戶外活動。", "🧥", "外套"),
+    ("帆布日常托特包", 880, "耐用帆布材質，日常收納輕鬆有型。", "👜", "配件"),
 ]
 
 
@@ -31,9 +31,18 @@ def init_db():
                 name TEXT NOT NULL,
                 price INTEGER NOT NULL CHECK (price >= 0),
                 description TEXT NOT NULL DEFAULT '',
-                image TEXT NOT NULL DEFAULT ''
+                image TEXT NOT NULL DEFAULT '',
+                category TEXT NOT NULL DEFAULT '其他'
             )
         """)
+
+        product_columns = {
+            row["name"] for row in conn.execute("PRAGMA table_info(products)")
+        }
+        if "category" not in product_columns:
+            conn.execute(
+                "ALTER TABLE products ADD COLUMN category TEXT NOT NULL DEFAULT '其他'"
+            )
 
                 # 訂單主表
         conn.execute("""
@@ -72,12 +81,12 @@ def init_db():
         if count == 0:
             conn.executemany("""
                 INSERT INTO products
-                    (name, price, description, image)
-                VALUES (?, ?, ?, ?)
+                    (name, price, description, image, category)
+                VALUES (?, ?, ?, ?, ?)
             """, INITIAL_PRODUCTS)
 
 
-def get_all_products():
+def get_all_products(search="", category=""):
     """取得所有商品。"""
     with get_connection() as conn:
         rows = conn.execute("""
@@ -86,10 +95,13 @@ def get_all_products():
                 name,
                 price,
                 description AS desc,
-                image AS img
+                image AS img,
+                category
             FROM products
+            WHERE (? = '' OR name LIKE ? OR description LIKE ?)
+                AND (? = '' OR category = ?)
             ORDER BY id
-        """).fetchall()
+        """, (search, f"%{search}%", f"%{search}%", category, category)).fetchall()
 
         return [dict(row) for row in rows]
 
@@ -103,12 +115,21 @@ def get_product_by_id(product_id):
                 name,
                 price,
                 description AS desc,
-                image AS img
+                image AS img,
+                category
             FROM products
             WHERE id = ?
         """, (product_id,)).fetchone()
 
         return dict(row) if row else None
+
+
+def get_product_categories():
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT DISTINCT category FROM products WHERE category <> '' ORDER BY category"
+        ).fetchall()
+        return [row["category"] for row in rows]
 
 
 def add_product(name, price, description="", image=""):
@@ -200,3 +221,44 @@ def create_order(cart):
         ])
 
         return order_id, total
+
+
+def get_order_details(order_id):
+    """取得一筆訂單及其所有商品明細。"""
+
+    with get_connection() as conn:
+
+        # 查詢訂單基本資料
+        order = conn.execute("""
+            SELECT id, total, status, created_at
+            FROM orders
+            WHERE id = ?
+        """, (order_id,)).fetchone()
+
+        if order is None:
+            return None
+
+        # 查詢這筆訂單包含的商品
+        rows = conn.execute("""
+            SELECT
+                product_name,
+                quantity,
+                unit_price
+            FROM order_items
+            WHERE order_id = ?
+            ORDER BY id
+        """, (order_id,)).fetchall()
+
+        items = []
+
+        for row in rows:
+            item = dict(row)
+            item["subtotal"] = (
+                item["quantity"] * item["unit_price"]
+            )
+            items.append(item)
+
+        return {
+            **dict(order),
+            "items": items,
+        }
