@@ -1,0 +1,434 @@
+/* ========================================
+   StyleLab Store — Minimalist Black & White
+   ======================================== */
+
+:root {
+    --color-bg: #fdfdfd;
+    --color-surface: #ffffff;
+    --color-text: #111111;
+    --color-muted: #666666;
+    --color-primary: #111111;
+    --color-primary-hover: #333333;
+    --color-border: #e0e0e0;
+    --radius-card: 4px; /* 極微小的圓角 */
+    --shadow-card: 0 4px 20px rgba(0, 0, 0, 0.04);
+    --shadow-hover: 0 10px 30px rgba(0, 0, 0, 0.08);
+}
+
+/* ---------- 基本設定 ---------- */
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    background: var(--color-bg);
+    color: var(--color-text);
+    font-family:
+        "Noto Sans TC",
+        "PingFang TC",
+        "Microsoft JhengHei",
+        sans-serif;
+    line-height: 1.7;
+    -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+    background: rgba(0, 0, 0, 0.1);
+}
+
+/* ---------- 導覽列（固定在最上方且稍微透明） ---------- */
+
+.navbar,
+.navbar.navbar-dark.bg-dark {
+    position: sticky !important;
+    top: 0;
+    z-index: 1000;
+    background: rgba(255, 255, 255, 0.85) !important; /* 一點點透明 */
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--color-border);
+    padding: 16px 0;
+}
+
+.navbar .navbar-brand {
+    color: var(--color-text) !important;
+    font-size: 1.2rem;
+    font-weight: 800;
+    letter-spacing: -0.4px;
+}
+
+.navbar .navbar-brand:hover {
+    color: var(--color-muted) !important;
+}
+
+/* ---------- 頁面標題 ---------- */
+
+main.container {
+    padding-top: 40px;
+}
+
+section > h1 {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 26px !important;
+    color: var(--color-text);
+    font-size: clamp(1.5rem, 3vw, 2rem);
+    font-weight: 800;
+    letter-spacing: -0.8px;
+}
+
+section > h1::before {
+    width: 4px;
+    height: 24px;
+    border-radius: 2px;
+    background: var(--color-text);
+    content: "";
+}
+
+/* ---------- 商品卡片 ---------- */
+
+.product-card {
+    overflow: hidden;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-card); /* 微小圓角 */
+    background: var(--color-surface);
+    box-shadow: var(--shadow-card);
+    transition:
+        transform 0.2s ease,
+        box-shadow 0.2s ease,
+        border-color 0.2s ease;
+}
+
+.product-card:hover {
+    transform: translateY(-4px);
+    border-color: #999999;
+    box-shadow: var(--shadow-hover);
+}
+
+.product-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 190px;
+    margin: 12px 12px 0;
+    border-radius: 2px;
+    background: #f4f4f4;
+    font-size: 4.5rem;
+    transition: transform 0.2s ease;
+}
+
+.product-card:hover .product-icon {
+    transform: scale(1.01);
+}
+
+.product-detail-card {
+    max-width: 760px;
+    overflow: hidden;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-card);
+    background: var(--color-surface);
+    box-shadow: var(--shadow-card);
+}
+
+.auth-card {
+    max-width: 480px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-card);
+    box-shadow: var(--shadow-card);
+}
+
+.product-detail-icon {
+    display: grid;
+    min-height: 280px;
+    place-items: center;
+    background: #f4f4f4;
+    font-size: 7rem;
+}
+
+.product-icon:focus-visible,
+.product-card a:focus-visible {
+    outline: 3px solid #555;
+    outline-offset: 3px;
+}
+
+.product-card .card-body {
+    padding: 20px;
+}
+
+.product-card .card-title {
+    margin-bottom: 8px;
+    color: var(--color-text);
+    font-size: 1.1rem;
+    font-weight: 700;
+    letter-spacing: -0.3px;
+}
+
+.product-card .card-text {
+    margin-bottom: 20px;
+    color: var(--color-muted) !important;
+    font-size: 0.92rem;
+    line-height: 1.6;
+}
+
+.product-card .text-danger {
+    color: var(--color-text) !important;
+    font-size: 1.2rem !important;
+    font-weight: 800;
+    white-space: nowrap;
+}
+
+/* ---------- 按鈕 ---------- */
+
+.btn {
+    border-radius: var(--radius-card); /* 微小圓角 */
+    font-weight: 600;
+    transition:
+        transform 0.15s ease,
+        background-color 0.15s ease,
+        border-color 0.15s ease;
+}
+
+.btn:active {
+    transform: scale(0.98);
+}
+
+.btn-primary {
+    border-color: #111111;
+    background: #111111;
+    color: #ffffff;
+}
+
+.btn-primary:hover,
+.btn-primary:focus-visible {
+    border-color: #333333;
+    background: #333333;
+    color: #ffffff;
+}
+
+.btn-success {
+    border-color: #111111;
+    background: #111111;
+    color: #ffffff;
+}
+
+.btn-success:hover {
+    border-color: #333333;
+    background: #333333;
+}
+
+.btn-outline-danger {
+    border-color: #cccccc;
+    color: #111111;
+}
+
+.btn-outline-danger:hover {
+    border-color: #111111;
+    background: #111111;
+    color: #ffffff;
+}
+
+.product-card .btn {
+    padding: 10px 14px;
+    font-size: 0.88rem;
+}
+
+/* ---------- 購物車 ---------- */
+
+.cart-card {
+    position: sticky;
+    top: 84px; /* 配合上方固定導覽列的高度留白 */
+    overflow: hidden;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-card);
+    background: var(--color-surface);
+    box-shadow: var(--shadow-card) !important;
+}
+
+.cart-card .card-header {
+    padding: 18px 20px;
+    border-bottom: 1px solid var(--color-border);
+    background: #111111 !important;
+    color: #ffffff;
+}
+
+.cart-card .card-header h2 {
+    font-size: 1.05rem;
+    font-weight: 700;
+    margin: 0;
+}
+
+.cart-card .card-body {
+    padding: 20px;
+}
+
+.cart-card .list-group-item {
+    padding-top: 14px;
+    padding-bottom: 14px;
+    border-color: var(--color-border);
+    background: transparent;
+}
+
+.cart-card .list-group-item h3 {
+    color: var(--color-text);
+    font-weight: 700;
+}
+
+.cart-card .list-group-item small {
+    display: inline-block;
+    margin-top: 4px;
+    color: var(--color-muted) !important;
+}
+
+.cart-line h3 {
+    flex: 1;
+    line-height: 1.4;
+}
+
+.quantity-form {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.quantity-form input {
+    width: 56px;
+    padding: 4px;
+    text-align: center;
+    appearance: textfield;
+    -moz-appearance: textfield;
+}
+
+.quantity-form input::-webkit-inner-spin-button,
+.quantity-form input::-webkit-outer-spin-button {
+    margin: 0;
+    -webkit-appearance: none;
+}
+
+.quantity-step {
+    display: inline-grid;
+    width: 28px;
+    height: 30px;
+    place-items: center;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-card);
+    background: #fff;
+    color: var(--color-text);
+    line-height: 1;
+}
+
+.quantity-step:hover {
+    border-color: var(--color-text);
+}
+
+.cart-card .text-success {
+    color: #111111 !important;
+}
+
+.cart-card .text-muted {
+    color: var(--color-muted) !important;
+}
+
+.cart-card .btn {
+    padding: 10px 14px;
+}
+
+/* ---------- 空購物車與提示文字 ---------- */
+
+.cart-card .text-center {
+    padding: 20px 0;
+}
+
+.cart-card p.small {
+    font-size: 0.78rem;
+    line-height: 1.6;
+}
+
+/* ---------- 結帳示範頁 ---------- */
+
+.success-card {
+    max-width: 560px;
+    padding: 40px !important;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-card);
+    background: var(--color-surface);
+    box-shadow: var(--shadow-hover);
+}
+
+.success-card .display-4 {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 80px;
+    height: 80px;
+    margin: 0 auto;
+    border-radius: var(--radius-card);
+    background: #f4f4f4;
+    font-size: 2.5rem;
+}
+
+.success-card h1 {
+    font-weight: 800;
+}
+
+.success-card p {
+    color: var(--color-muted);
+}
+
+/* ---------- 響應式版面 ---------- */
+
+@media (max-width: 991.98px) {
+    .cart-card {
+        position: static;
+    }
+}
+
+@media (max-width: 575.98px) {
+    .navbar {
+        padding: 12px 0;
+    }
+
+    .navbar .navbar-brand {
+        font-size: 1.05rem;
+    }
+
+    main.container {
+        padding-top: 20px;
+    }
+
+    section > h1 {
+        margin-bottom: 18px !important;
+    }
+
+    .product-icon {
+        min-height: 155px;
+        font-size: 3.8rem;
+    }
+
+    .product-card .card-body {
+        padding: 16px;
+    }
+
+    .cart-card .card-body {
+        padding: 16px;
+    }
+
+    .success-card {
+        padding: 24px 18px !important;
+    }
+}
+
+/* ---------- 尊重減少動畫的系統設定 ---------- */
+
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        scroll-behavior: auto !important;
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+    }
+}
