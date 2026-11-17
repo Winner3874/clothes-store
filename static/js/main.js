@@ -74,9 +74,7 @@
 
         document.title = nextDocument.title;
         document.body.replaceWith(nextDocument.body);
-        if (scrollPosition) {
-            window.scrollTo({ left: scrollPosition.x, top: scrollPosition.y, behavior: "auto" });
-        }
+        if (scrollPosition) window.scrollTo(scrollPosition.x, scrollPosition.y);
         initializeInteractions();
     };
 
@@ -109,8 +107,7 @@
         } catch (error) {
             console.error("Could not update the page without reloading:", error);
             form.querySelectorAll("button[type=submit], input[type=submit]").forEach((button) => { button.disabled = false; });
-            form.dataset.allowNavigation = "true";
-            form.requestSubmit(submitter || undefined);
+            console.error("Request failed; the page was left in place.");
         }
     });
 
@@ -131,4 +128,5 @@
     } else {
         initializeInteractions();
     }
+    history.scrollRestoration = "manual";
 })();
