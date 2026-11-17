@@ -2,22 +2,6 @@
     const formatPrice = (amount) => new Intl.NumberFormat("zh-TW").format(amount);
 
     const initializeInteractions = () => {
-        const checkoutForm = document.querySelector("[data-confirm-checkout]");
-        const clearCartForm = document.querySelector("[data-confirm-clear]");
-
-        if (checkoutForm && !checkoutForm.dataset.confirmBound) {
-            checkoutForm.dataset.confirmBound = "true";
-            checkoutForm.addEventListener("submit", (event) => {
-                if (!window.confirm("\u78ba\u5b9a\u8981\u9001\u51fa\u8a02\u55ae\u55ce\uff1f")) event.preventDefault();
-            });
-        }
-        if (clearCartForm && !clearCartForm.dataset.confirmBound) {
-            clearCartForm.dataset.confirmBound = "true";
-            clearCartForm.addEventListener("submit", (event) => {
-                if (!window.confirm("\u78ba\u5b9a\u8981\u6e05\u7a7a\u8cfc\u7269\u8eca\u55ce\uff1f")) event.preventDefault();
-            });
-        }
-
         document.querySelectorAll("[data-cart-row]").forEach((row) => {
             const quantityInput = row.querySelector("[data-cart-quantity]");
             if (!quantityInput || quantityInput.dataset.bound) return;
@@ -38,11 +22,13 @@
             };
 
             quantityInput.addEventListener("input", updateCartTotals);
+            let saveTimer;
             const saveQuantity = () => {
                 const quantity = Number.parseInt(quantityInput.value, 10) || 1;
                 quantityInput.value = Math.min(99, Math.max(1, quantity));
                 updateCartTotals();
-                quantityInput.form.requestSubmit();
+                clearTimeout(saveTimer);
+                saveTimer = setTimeout(() => quantityInput.form.requestSubmit(), 250);
             };
             quantityInput.addEventListener("change", saveQuantity);
             row.querySelectorAll("[data-quantity-step]").forEach((button) => {
@@ -80,12 +66,22 @@
 
     document.addEventListener("submit", async (event) => {
         const form = event.target;
-        if (!(form instanceof HTMLFormElement) || event.defaultPrevented || form.target === "_blank") return;
+        if (!(form instanceof HTMLFormElement) || form.target === "_blank") return;
         if (form.dataset.allowNavigation === "true") return;
+        if (form.matches("[data-confirm-checkout]") && !window.confirm("\u78ba\u5b9a\u8981\u9001\u51fa\u8a02\u55ae\u55ce\uff1f")) {
+            event.preventDefault();
+            return;
+        }
+        if (form.matches("[data-confirm-clear]") && !window.confirm("\u78ba\u5b9a\u8981\u6e05\u7a7a\u8cfc\u7269\u8eca\u55ce\uff1f")) {
+            event.preventDefault();
+            return;
+        }
         event.preventDefault();
         const submitter = event.submitter;
-        const method = (submitter?.formMethod || form.method || "get").toUpperCase();
-        const action = new URL(submitter?.formAction || form.action || window.location.href, window.location.href);
+        const submitterMethod = submitter?.hasAttribute("formmethod") ? submitter.formMethod : "";
+        const submitterAction = submitter?.hasAttribute("formaction") ? submitter.formAction : "";
+        const method = (submitterMethod || form.method || "get").toUpperCase();
+        const action = new URL(submitterAction || form.action || window.location.href, window.location.href);
         const formData = new FormData(form);
         if (submitter?.name) formData.append(submitter.name, submitter.value);
         const options = { method, credentials: "same-origin", headers: { "X-Requested-With": "fetch" } };
@@ -107,9 +103,24 @@
         } catch (error) {
             console.error("Could not update the page without reloading:", error);
             form.querySelectorAll("button[type=submit], input[type=submit]").forEach((button) => { button.disabled = false; });
-            console.error("Request failed; the page was left in place.");
+            let notice = document.querySelector("[data-request-error]");
+            if (!notice) {
+                notice = document.createElement("div");
+                notice.dataset.requestError = "true";
+                notice.setAttribute("role", "alert");
+                notice.style.cssText = "position:fixed;right:1rem;bottom:1rem;z-index:2000;max-width:24rem;padding:.75rem 1rem;background:#842029;color:#fff;border-radius:.5rem;box-shadow:0 2px 12px #0003";
+                document.body.append(notice);
+            }
+            notice.textContent = "Request failed. Please try again.";
+            notice.style.opacity = "1";
+            notice.style.transition = "opacity .4s ease";
+            clearTimeout(notice.fadeTimer);
+            notice.fadeTimer = setTimeout(() => {
+                notice.style.opacity = "0";
+                setTimeout(() => notice.remove(), 450);
+            }, 3000);
         }
-    });
+    }, true);
 
     window.addEventListener("popstate", async (event) => {
         try {
