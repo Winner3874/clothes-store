@@ -5,6 +5,7 @@
     <title>個人資料｜StyleLab</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css', v=10) }}">
+<link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}">
 </head>
 <body class="bg-light">
     <nav class="navbar navbar-dark bg-dark mb-4"><div class="container"><a class="navbar-brand" href="{{ url_for('index') }}">StyleLab</a><a class="nav-link text-white" href="{{ url_for('index') }}">回首頁</a></div></nav>
@@ -12,12 +13,6 @@
         <h1 class="h3 mb-4">個人資料</h1>
         {% with messages = get_flashed_messages(with_categories=true) %}{% for category, message in messages %}<div class="alert alert-{{ category }}" role="status">{{ message }}</div>{% endfor %}{% endwith %}
         <dl class="row"><dt class="col-sm-4">姓名</dt><dd class="col-sm-8">{{ user.name }}</dd><dt class="col-sm-4">Username</dt><dd class="col-sm-8">{{ user.username }}</dd><dt class="col-sm-4">電子郵件</dt><dd class="col-sm-8">{{ user.email or '未提供' }}</dd></dl>
-        <hr><h2 class="h5 mb-3">修改密碼</h2>
-        <form method="post">
-            <div class="mb-3"><label class="form-label" for="password">新密碼</label><input class="form-control" id="password" name="password" type="password" minlength="8" maxlength="256" autocomplete="new-password" required></div>
-            <div class="mb-3"><label class="form-label" for="confirm_password">確認新密碼</label><input class="form-control" id="confirm_password" name="confirm_password" type="password" minlength="8" maxlength="256" autocomplete="new-password" required></div>
-            <button class="btn btn-primary" type="submit">更新密碼</button>
-        </form>
     </div></main>
     <script src="{{ url_for('static', filename='js/main.js', v=10) }}"></script>
 </body>

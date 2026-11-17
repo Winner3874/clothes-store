@@ -41,6 +41,47 @@
                 });
             });
         });
+        document.querySelectorAll("[data-gallery-image]").forEach((button) => {
+            if (button.dataset.bound) return;
+            button.dataset.bound = "true";
+            button.addEventListener("click", () => {
+                const mainImage = document.querySelector("[data-gallery-main]");
+                if (mainImage) mainImage.src = button.dataset.galleryImage;
+                document.querySelectorAll("[data-gallery-image]").forEach((thumbnail) => {
+                    thumbnail.classList.toggle("active", thumbnail === button);
+                });
+            });
+        });
+
+        document.querySelectorAll("[data-open-product-modal]").forEach((button) => {
+            if (button.dataset.bound) return;
+            button.dataset.bound = "true";
+            button.addEventListener("click", () => {
+                const dialog = document.querySelector("[data-product-order-dialog]");
+                if (!dialog) return;
+                const form = dialog.querySelector("[data-product-order-form]");
+                const colorSelect = dialog.querySelector("[data-dialog-colors]");
+                const sizeSelect = dialog.querySelector("[data-dialog-sizes]");
+                const quantity = dialog.querySelector("[data-dialog-quantity]");
+                const stock = Math.max(0, Number.parseInt(button.dataset.productStock, 10) || 0);
+                const fill = (select, source) => {
+                    select.replaceChildren(...source.split(",").map((value) => value.trim()).filter(Boolean).map((value) => {
+                        const option = document.createElement("option");
+                        option.value = value;
+                        option.textContent = value;
+                        return option;
+                    }));
+                };
+                dialog.querySelector("[data-dialog-product-name]").textContent = button.dataset.productName;
+                dialog.querySelector("[data-dialog-stock]").textContent = `In stock: ${stock}`;
+                form.action = button.dataset.addUrl;
+                fill(colorSelect, button.dataset.colorOptions || "Default");
+                fill(sizeSelect, button.dataset.sizeOptions || "One size");
+                quantity.max = String(Math.max(1, Math.min(stock, 99)));
+                quantity.value = "1";
+                dialog.showModal();
+            });
+        });
     };
 
     const renderResponse = async (response, { addHistory = true, scrollPosition = null } = {}) => {
@@ -61,14 +102,13 @@
 
         document.title = nextDocument.title;
         document.body.replaceWith(nextDocument.body);
-        if (scrollPosition) window.scrollTo(scrollPosition.x, scrollPosition.y);
+        if (scrollPosition) requestAnimationFrame(() => window.scrollTo(scrollPosition.x, scrollPosition.y));
         initializeInteractions();
     };
 
     document.addEventListener("submit", async (event) => {
         const form = event.target;
-        if (!(form instanceof HTMLFormElement) || form.target === "_blank") return;
-        if (form.dataset.allowNavigation === "true") return;
+        if (!(form instanceof HTMLFormElement) || form.target === "_blank" || form.method === "dialog") return;
         if (form.matches("[data-confirm-checkout]") && !window.confirm("\u78ba\u5b9a\u8981\u9001\u51fa\u8a02\u55ae\u55ce\uff1f")) {
             event.preventDefault();
             return;

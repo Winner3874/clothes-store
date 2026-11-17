@@ -1,10 +1,9 @@
 
 import os
 import sqlite3
-import hmac
 from functools import wraps
 
-from flask import Flask, abort, flash, redirect, render_template, request, session, url_for
+from flask import Flask, abort, flash, redirect, render_template, request, send_from_directory, session, url_for
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from database import (
@@ -23,7 +22,6 @@ from database import (
     get_favorite_products,
     toggle_favorite,
     get_orders_by_user,
-    set_product_stock,
 )
 
 app = Flask(__name__)
@@ -49,7 +47,7 @@ def get_current_user():
 
 @app.context_processor
 def inject_current_user():
-    return {"current_user": get_current_user()}
+    return {"current_user": get_current_user(), "cart_count": sum(q for q in session.get("cart", {}).values() if isinstance(q, int) and q > 0)}
 
 
 def login_required(view):
@@ -62,58 +60,19 @@ def login_required(view):
     return wrapped_view
 
 
-def seller_required(view):
-    @wraps(view)
-    def wrapped_view(*args, **kwargs):
-        if not session.get("is_seller"):
-            return redirect(url_for("seller_login"))
-        return view(*args, **kwargs)
-    return wrapped_view
-
-
-def get_cart_items():
-    """根據購物車中的商品 ID，從資料庫取得商品資訊。"""
-    cart = session.get("cart", {})
-    cart_items = []
-    total = 0
-
-    for product_id, quantity in cart.items():
-        product = get_product_by_id(int(product_id))
-
-        if product and isinstance(quantity, int) and quantity > 0:
-            subtotal = product["price"] * quantity
-
-            cart_items.append({
-                **product,
-                "qty": quantity,
-                "subtotal": subtotal,
-            })
-
-            total += subtotal
-
-    return cart_items, total
-
-
 @app.get("/")
 def index():
     search = request.args.get("q", "").strip()
-    category = request.args.get("category", "").strip()
-    products = get_all_products(search=search, category=category)
-    categories = get_product_categories()
-    cart_items, total = get_cart_items()
-    current_user = get_current_user()
-    favorite_product_ids = (
-        get_favorite_product_ids(current_user["id"]) if current_user else set()
-    )
-
+    selected_category = request.args.get("category", "").strip()
+    products = get_all_products(search=search, category=selected_category)
+    user = get_current_user()
+    favorite_product_ids = set(get_favorite_product_ids(user["id"])) if user else set()
     return render_template(
         "index.html",
         products=products,
-        cart_items=cart_items,
-        total=total,
-        categories=categories,
+        categories=get_product_categories(),
         search=search,
-        selected_category=category,
+        selected_category=selected_category,
         favorite_product_ids=favorite_product_ids,
     )
 
@@ -123,58 +82,9 @@ def product_detail(product_id):
     product = get_product_by_id(product_id)
     if product is None:
         abort(404)
-    current_user = get_current_user()
-    is_favorite = (
-        product_id in get_favorite_product_ids(current_user["id"])
-        if current_user else False
-    )
-    return render_template(
-        "product_detail.html", product=product, is_favorite=is_favorite
-    )
-
-
-@app.route("/seller/login", methods=["GET", "POST"])
-def seller_login():
-    if request.method == "POST":
-        configured_username = os.environ.get("ADMIN_USERNAME", "")
-        configured_password = os.environ.get("ADMIN_PASSWORD", "")
-        username = request.form.get("username", "")
-        password = request.form.get("password", "")
-        if (configured_username and configured_password
-                and hmac.compare_digest(username, configured_username)
-                and hmac.compare_digest(password, configured_password)):
-            session["is_seller"] = True
-            return redirect(url_for("seller_inventory"))
-        flash("帳號或密碼錯誤，或尚未設定店主管理帳密。", "danger")
-    return render_template("seller_login.html")
-
-
-@app.post("/seller/logout")
-def seller_logout():
-    session.pop("is_seller", None)
-    return redirect(url_for("index"))
-
-
-@app.get("/seller/inventory")
-@seller_required
-def seller_inventory():
-    return render_template("seller_inventory.html", products=get_all_products())
-
-
-@app.post("/seller/inventory/<int:product_id>")
-@seller_required
-def seller_update_stock(product_id):
-    try:
-        stock = int(request.form.get("stock", ""))
-        if stock < 0 or stock > 1_000_000:
-            raise ValueError
-    except (TypeError, ValueError):
-        flash("請輸入 0 到 1,000,000 之間的整數。", "danger")
-        return redirect(url_for("seller_inventory"))
-    if not set_product_stock(product_id, stock):
-        abort(404)
-    flash("庫存數量已更新。", "success")
-    return redirect(url_for("seller_inventory"))
+    user = get_current_user()
+    is_favorite = bool(user and product_id in get_favorite_product_ids(user["id"]))
+    return render_template("product_detail.html", product=product, is_favorite=is_favorite)
 
 
 @app.route("/register", methods=["GET", "POST"])
@@ -225,9 +135,15 @@ def login():
     return render_template("auth.html", mode="login")
 
 
-@app.route("/profile", methods=["GET", "POST"])
+@app.get("/profile")
 @login_required
 def profile():
+    return render_template("profile.html", user=get_current_user())
+
+
+@app.route("/change-password", methods=["GET", "POST"])
+@login_required
+def change_password():
     user = get_current_user()
     if request.method == "POST":
         password = request.form.get("password", "")
@@ -239,8 +155,14 @@ def profile():
         else:
             update_user_password(user["id"], generate_password_hash(password))
             flash("密碼已更新。", "success")
-            return redirect(url_for("profile"))
-    return render_template("profile.html", user=user)
+            return redirect(url_for("change_password"))
+    return render_template("change_password.html")
+
+
+@app.get("/cart")
+def cart():
+    cart_items, total = get_cart_items()
+    return render_template("cart.html", cart_items=cart_items, total=total)
 
 
 @app.post("/logout")
@@ -287,68 +209,80 @@ def order_history():
 
 @app.post("/add/<int:product_id>")
 def add_to_cart(product_id):
-    # 商品必須存在於資料庫中
     product = get_product_by_id(product_id)
     if product is None:
-        return redirect(url_for("index"))
-
+        abort(404)
+    try:
+        quantity = int(request.form.get("quantity", "1"))
+    except (TypeError, ValueError):
+        quantity = 0
+    colors = [value.strip() for value in product["colors"].split(",") if value.strip()]
+    sizes = [value.strip() for value in product["sizes"].split(",") if value.strip()]
+    color = request.form.get("color", colors[0] if colors else "")
+    size = request.form.get("size", sizes[0] if sizes else "")
+    if color not in colors or size not in sizes or quantity < 1 or quantity > 99:
+        flash("\u8acb\u9078\u64c7\u6709\u6548\u7684\u5546\u54c1\u898f\u683c\u8207\u6578\u91cf\u3002", "warning")
+        return redirect(url_for("product_detail", product_id=product_id))
     cart = session.get("cart", {})
-    key = str(product_id)
-
-    current_quantity = cart.get(key, 0)
-    if not isinstance(current_quantity, int) or current_quantity < 0:
-        current_quantity = 0
-    if current_quantity >= product["stock"]:
-        flash("此商品已達可購買數量上限。", "warning")
-        return redirect(url_for("index"))
-    cart[key] = min(current_quantity + 1, 99, product["stock"])
+    key = f"{product_id}|{color}|{size}"
+    existing = cart.get(key, 0)
+    if not isinstance(existing, int) or existing < 0:
+        existing = 0
+    already_in_cart = sum(value for old_key, value in cart.items()
+                          if str(old_key).split("|", 1)[0] == str(product_id)
+                          and isinstance(value, int) and value > 0)
+    if product["stock"] <= 0 or already_in_cart + quantity > product["stock"]:
+        flash(f"\u76ee\u524d\u5eab\u5b58\u50c5\u5269 {product['stock']} \u4ef6\u3002", "warning")
+        return redirect(url_for("cart"))
+    cart[key] = min(existing + quantity, 99)
     session["cart"] = cart
-
-    return redirect(url_for("index"))
+    return redirect(url_for("cart"))
 
 
 @app.post("/cart/update/<int:product_id>")
 def update_cart_quantity(product_id):
     cart = session.get("cart", {})
-    key = str(product_id)
-
+    key = request.form.get("cart_key", str(product_id))
+    if not key.startswith(f"{product_id}|") and key != str(product_id):
+        abort(400)
     try:
         quantity = int(request.form.get("quantity", ""))
     except (TypeError, ValueError):
-        return redirect(url_for("index"))
-
+        return redirect(url_for("cart"))
     product = get_product_by_id(product_id)
     if key in cart and product:
-        if product["stock"] == 0:
+        other_quantity = sum(value for old_key, value in cart.items()
+                             if old_key != key and str(old_key).split("|", 1)[0] == str(product_id)
+                             and isinstance(value, int) and value > 0)
+        max_quantity = min(99, product["stock"] - other_quantity)
+        if max_quantity < 1:
             cart.pop(key, None)
-            flash(f"{product['name']} 已售完，已從購物袋移除。", "warning")
-        elif quantity < 1 or quantity > min(99, product["stock"]):
-            cart[key] = min(max(1, quantity), 99, product["stock"])
-            flash(f"已調整數量，目前最多可購買 {product['stock']} 件。", "warning")
         else:
-            cart[key] = quantity
+            cart[key] = min(max(1, quantity), max_quantity)
         session["cart"] = cart
-
-    return redirect(url_for("index"))
+    return redirect(url_for("cart"))
 
 
 @app.post("/cart/remove/<int:product_id>")
 def remove_from_cart(product_id):
     cart = session.get("cart", {})
-    cart.pop(str(product_id), None)
+    key = request.form.get("cart_key", str(product_id))
+    if not key.startswith(f"{product_id}|") and key != str(product_id):
+        abort(400)
+    cart.pop(key, None)
 
     if cart:
         session["cart"] = cart
     else:
         session.pop("cart", None)
 
-    return redirect(url_for("index"))
+    return redirect(url_for("cart"))
 
 
 @app.post("/clear")
 def clear_cart():
     session.pop("cart", None)
-    return redirect(url_for("index"))
+    return redirect(url_for("cart"))
 
 
 @app.post("/checkout")

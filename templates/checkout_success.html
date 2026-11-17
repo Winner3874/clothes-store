@@ -5,6 +5,7 @@
     <title>訂單完成｜StyleLab</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+<link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}">
 </head>
 <body class="bg-light">
     <main class="container py-5"><section class="card success-card mx-auto p-4 p-md-5">
@@ -12,7 +13,7 @@
         <p class="text-muted">訂單編號：{{ order.id }}　｜　建立時間：{{ order.created_at }}</p>
         <p>訂單狀態：{{ order.status }}</p>
         <h2 class="h5 mt-4">商品明細</h2>
-        <ul class="list-group mb-4">{% for item in order['items'] %}<li class="list-group-item d-flex justify-content-between"><span>{{ item.product_name }} × {{ item.quantity }}</span><span>NT$ {{ "{:,}".format(item.subtotal) }}</span></li>{% endfor %}</ul>
+        <ul class="list-group mb-4">{% for item in order['items'] %}<li class="list-group-item d-flex justify-content-between"><span>{{ item.product_name }}{% if item.selected_options %} ({{ item.selected_options }}){% endif %} × {{ item.quantity }}</span><span>NT$ {{ "{:,}".format(item.subtotal) }}</span></li>{% endfor %}</ul>
         <p class="h4">總金額：NT$ {{ "{:,}".format(order.total) }}</p>
         <a class="btn btn-primary mt-3" href="{{ url_for('index') }}">返回首頁</a>
     </section></main>
