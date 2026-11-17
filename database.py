@@ -32,7 +32,8 @@ def init_db():
                 price INTEGER NOT NULL CHECK (price >= 0),
                 description TEXT NOT NULL DEFAULT '',
                 image TEXT NOT NULL DEFAULT '',
-                category TEXT NOT NULL DEFAULT '其他'
+                category TEXT NOT NULL DEFAULT '其他',
+                stock INTEGER NOT NULL DEFAULT 20 CHECK (stock >= 0)
             )
         """)
 
@@ -42,6 +43,10 @@ def init_db():
         if "category" not in product_columns:
             conn.execute(
                 "ALTER TABLE products ADD COLUMN category TEXT NOT NULL DEFAULT '其他'"
+            )
+        if "stock" not in product_columns:
+            conn.execute(
+                "ALTER TABLE products ADD COLUMN stock INTEGER NOT NULL DEFAULT 20 CHECK (stock >= 0)"
             )
 
         conn.execute("""
@@ -61,7 +66,7 @@ def init_db():
         if "username" not in user_columns:
             conn.execute("PRAGMA foreign_keys = OFF")
             conn.execute("""
-                CREATE TABLE users_new (
+                CREATE TABLE IF NOT EXISTS users_new (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     name TEXT NOT NULL,
                     username TEXT NOT NULL UNIQUE COLLATE NOCASE,
@@ -143,9 +148,9 @@ def init_db():
         if count == 0:
             conn.executemany("""
                 INSERT INTO products
-                    (name, price, description, image, category)
-                VALUES (?, ?, ?, ?, ?)
-            """, INITIAL_PRODUCTS)
+                    (name, price, description, image, category, stock)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, [(*product, 20) for product in INITIAL_PRODUCTS])
 
 
 def get_all_products(search="", category=""):
@@ -158,7 +163,8 @@ def get_all_products(search="", category=""):
                 price,
                 description AS desc,
                 image AS img,
-                category
+                category,
+                stock
             FROM products
             WHERE (? = '' OR name LIKE ? OR description LIKE ?)
                 AND (? = '' OR category = ?)
@@ -178,7 +184,8 @@ def get_product_by_id(product_id):
                 price,
                 description AS desc,
                 image AS img,
-                category
+                category,
+                stock
             FROM products
             WHERE id = ?
         """, (product_id,)).fetchone()
@@ -262,7 +269,7 @@ def get_favorite_products(user_id):
     with get_connection() as conn:
         rows = conn.execute("""
             SELECT p.id, p.name, p.price, p.description AS desc,
-                   p.image AS img, p.category
+                   p.image AS img, p.category, p.stock
             FROM favorites f
             JOIN products p ON p.id = f.product_id
             WHERE f.user_id = ?
@@ -318,6 +325,7 @@ def create_order(cart, user_id=None):
         raise ValueError("購物車是空的")
 
     with get_connection() as conn:
+        conn.execute("BEGIN IMMEDIATE")
         items = []
         total = 0
 
@@ -330,13 +338,16 @@ def create_order(cart, user_id=None):
                 raise ValueError("商品數量不正確")
 
             product = conn.execute("""
-                SELECT id, name, price
+                SELECT id, name, price, stock
                 FROM products
                 WHERE id = ?
             """, (product_id,)).fetchone()
 
             if product is None:
                 raise ValueError("商品不存在")
+
+            if quantity > product["stock"]:
+                raise ValueError(f"{product['name']} 庫存不足，目前剩餘 {product['stock']} 件")
 
             subtotal = product["price"] * quantity
             total += subtotal
@@ -355,6 +366,14 @@ def create_order(cart, user_id=None):
         """, (user_id, total))
 
         order_id = cursor.lastrowid
+
+        for item in items:
+            updated = conn.execute(
+                "UPDATE products SET stock = stock - ? WHERE id = ? AND stock >= ?",
+                (item["quantity"], item["product_id"], item["quantity"]),
+            )
+            if updated.rowcount != 1:
+                raise ValueError("商品庫存已變動，請重新確認購物車數量")
 
         # 建立訂單明細
         conn.executemany("""
@@ -378,6 +397,16 @@ def create_order(cart, user_id=None):
         ])
 
         return order_id, total
+
+
+def set_product_stock(product_id, stock):
+    if not isinstance(stock, int) or stock < 0:
+        raise ValueError("庫存數量必須是 0 或以上的整數")
+    with get_connection() as conn:
+        cursor = conn.execute(
+            "UPDATE products SET stock = ? WHERE id = ?", (stock, product_id)
+        )
+        return cursor.rowcount == 1
 
 
 def get_order_details(order_id):

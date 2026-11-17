@@ -6,6 +6,7 @@
             const quantityInput = row.querySelector("[data-cart-quantity]");
             if (!quantityInput || quantityInput.dataset.bound) return;
             quantityInput.dataset.bound = "true";
+            const maxQuantity = Math.max(1, Number.parseInt(quantityInput.max, 10) || 99);
 
             const updateCartTotals = () => {
                 let cartTotal = 0;
@@ -25,7 +26,7 @@
             let saveTimer;
             const saveQuantity = () => {
                 const quantity = Number.parseInt(quantityInput.value, 10) || 1;
-                quantityInput.value = Math.min(99, Math.max(1, quantity));
+                quantityInput.value = Math.min(maxQuantity, Math.max(1, quantity));
                 updateCartTotals();
                 clearTimeout(saveTimer);
                 saveTimer = setTimeout(() => quantityInput.form.requestSubmit(), 250);
@@ -35,7 +36,7 @@
                 button.addEventListener("click", () => {
                     const step = Number.parseInt(button.dataset.quantityStep, 10);
                     const quantity = Number.parseInt(quantityInput.value, 10) || 1;
-                    quantityInput.value = Math.min(99, Math.max(1, quantity + step));
+                    quantityInput.value = Math.min(maxQuantity, Math.max(1, quantity + step));
                     saveQuantity();
                 });
             });

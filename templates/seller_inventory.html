@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>庫存管理｜StyleLab</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body class="storefront seller-page">
+    <nav class="navbar navbar-dark bg-dark store-nav"><div class="container"><a class="navbar-brand" href="{{ url_for('index') }}"><span class="brand-mark">S</span> StyleLab</a><form action="{{ url_for('seller_logout') }}" method="post"><button class="nav-text-button" type="submit">登出管理後台</button></form></div></nav>
+    <main class="container seller-inventory-wrap">
+        {% with messages = get_flashed_messages(with_categories=true) %}{% for category, message in messages %}<div class="alert alert-{{ category }}" role="status">{{ message }}</div>{% endfor %}{% endwith %}
+        <header class="inventory-heading"><div><p class="eyebrow">STYLELAB MERCHANT</p><h1>商品庫存</h1><p>調整庫存後，商店頁面會立即更新。</p></div><a class="back-link" href="{{ url_for('index') }}">查看商店　↗</a></header>
+        <section class="inventory-list">
+            {% for product in products %}<article class="inventory-row"><div class="inventory-product"><span class="inventory-icon">{{ product.img }}</span><div><small>{{ product.category }}</small><h2>{{ product.name }}</h2><p>NT$ {{ "{:,}".format(product.price) }}　·　目前剩餘 {{ product.stock }} 件</p></div></div>
+                <form action="{{ url_for('seller_update_stock', product_id=product.id) }}" method="post"><label for="stock-{{ product.id }}">更新庫存</label><div><input id="stock-{{ product.id }}" name="stock" type="number" min="0" max="1000000" value="{{ product.stock }}" required><button type="submit">儲存</button></div></form>
+            </article>{% else %}<p class="inventory-empty">目前沒有商品。</p>{% endfor %}
+        </section>
+    </main>
+</body>
+</html>

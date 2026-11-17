@@ -1,6 +1,7 @@
 
 import os
 import sqlite3
+import hmac
 from functools import wraps
 
 from flask import Flask, abort, flash, redirect, render_template, request, session, url_for
@@ -22,6 +23,7 @@ from database import (
     get_favorite_products,
     toggle_favorite,
     get_orders_by_user,
+    set_product_stock,
 )
 
 app = Flask(__name__)
@@ -56,6 +58,15 @@ def login_required(view):
         if get_current_user() is None:
             flash("請先登入會員。", "warning")
             return redirect(url_for("login"))
+        return view(*args, **kwargs)
+    return wrapped_view
+
+
+def seller_required(view):
+    @wraps(view)
+    def wrapped_view(*args, **kwargs):
+        if not session.get("is_seller"):
+            return redirect(url_for("seller_login"))
         return view(*args, **kwargs)
     return wrapped_view
 
@@ -120,6 +131,50 @@ def product_detail(product_id):
     return render_template(
         "product_detail.html", product=product, is_favorite=is_favorite
     )
+
+
+@app.route("/seller/login", methods=["GET", "POST"])
+def seller_login():
+    if request.method == "POST":
+        configured_username = os.environ.get("ADMIN_USERNAME", "")
+        configured_password = os.environ.get("ADMIN_PASSWORD", "")
+        username = request.form.get("username", "")
+        password = request.form.get("password", "")
+        if (configured_username and configured_password
+                and hmac.compare_digest(username, configured_username)
+                and hmac.compare_digest(password, configured_password)):
+            session["is_seller"] = True
+            return redirect(url_for("seller_inventory"))
+        flash("帳號或密碼錯誤，或尚未設定店主管理帳密。", "danger")
+    return render_template("seller_login.html")
+
+
+@app.post("/seller/logout")
+def seller_logout():
+    session.pop("is_seller", None)
+    return redirect(url_for("index"))
+
+
+@app.get("/seller/inventory")
+@seller_required
+def seller_inventory():
+    return render_template("seller_inventory.html", products=get_all_products())
+
+
+@app.post("/seller/inventory/<int:product_id>")
+@seller_required
+def seller_update_stock(product_id):
+    try:
+        stock = int(request.form.get("stock", ""))
+        if stock < 0 or stock > 1_000_000:
+            raise ValueError
+    except (TypeError, ValueError):
+        flash("請輸入 0 到 1,000,000 之間的整數。", "danger")
+        return redirect(url_for("seller_inventory"))
+    if not set_product_stock(product_id, stock):
+        abort(404)
+    flash("庫存數量已更新。", "success")
+    return redirect(url_for("seller_inventory"))
 
 
 @app.route("/register", methods=["GET", "POST"])
@@ -233,7 +288,8 @@ def order_history():
 @app.post("/add/<int:product_id>")
 def add_to_cart(product_id):
     # 商品必須存在於資料庫中
-    if get_product_by_id(product_id) is None:
+    product = get_product_by_id(product_id)
+    if product is None:
         return redirect(url_for("index"))
 
     cart = session.get("cart", {})
@@ -242,7 +298,10 @@ def add_to_cart(product_id):
     current_quantity = cart.get(key, 0)
     if not isinstance(current_quantity, int) or current_quantity < 0:
         current_quantity = 0
-    cart[key] = min(current_quantity + 1, 99)
+    if current_quantity >= product["stock"]:
+        flash("此商品已達可購買數量上限。", "warning")
+        return redirect(url_for("index"))
+    cart[key] = min(current_quantity + 1, 99, product["stock"])
     session["cart"] = cart
 
     return redirect(url_for("index"))
@@ -258,8 +317,16 @@ def update_cart_quantity(product_id):
     except (TypeError, ValueError):
         return redirect(url_for("index"))
 
-    if key in cart and get_product_by_id(product_id) and 1 <= quantity <= 99:
-        cart[key] = quantity
+    product = get_product_by_id(product_id)
+    if key in cart and product:
+        if product["stock"] == 0:
+            cart.pop(key, None)
+            flash(f"{product['name']} 已售完，已從購物袋移除。", "warning")
+        elif quantity < 1 or quantity > min(99, product["stock"]):
+            cart[key] = min(max(1, quantity), 99, product["stock"])
+            flash(f"已調整數量，目前最多可購買 {product['stock']} 件。", "warning")
+        else:
+            cart[key] = quantity
         session["cart"] = cart
 
     return redirect(url_for("index"))
@@ -297,7 +364,8 @@ def checkout():
             cart, user_id=user["id"] if user else None
         )
 
-    except (ValueError, TypeError):
+    except (ValueError, TypeError) as error:
+        flash(str(error), "warning")
         return redirect(url_for("index"))
 
     # 從資料庫重新讀取剛建立的訂單
