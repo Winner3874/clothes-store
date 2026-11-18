@@ -72,3 +72,16 @@ FLASK_SECRET_KEY=請設定隨機且固定的長字串
 應用程式啟動時會讀取 `.env`；作業系統已設定的環境變數優先。
 
 Google 登入會以 Google 回傳的已驗證電子郵件識別會員；若該電子郵件已存在，會將 Google 身分連結到該會員。首次 Google 登入會自動建立會員。
+
+## LINE Pay (sandbox)
+
+Checkout redirects to LINE Pay Online API v3. Create a LINE Pay sandbox channel, then add these values to the git-ignored `.env` file in the project root:
+
+```text
+LINE_PAY_CHANNEL_ID=your_sandbox_channel_id
+LINE_PAY_CHANNEL_SECRET=your_sandbox_channel_secret
+LINE_PAY_API_BASE=https://sandbox-api-pay.line.me
+LINE_PAY_CALLBACK_BASE_URL=https://your-public-dev-tunnel.example
+```
+
+The callback base URL must be reachable by LINE Pay; `localhost` and `127.0.0.1` will not work for redirects from LINE Pay. Omit `LINE_PAY_CALLBACK_BASE_URL` only when the site itself is already running at a publicly reachable HTTPS URL. To use production, set `LINE_PAY_API_BASE=https://api-pay.line.me` and provide production credentials. Keep channel secrets out of source control.

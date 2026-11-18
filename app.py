@@ -3,8 +3,13 @@ import os
 import json
 import secrets
 import sqlite3
+import base64
+import hashlib
+import hmac
+import uuid
 import urllib.parse
 import urllib.request
+import urllib.error
 from functools import wraps
 
 from flask import Flask, abort, flash, redirect, render_template, request, send_from_directory, session, url_for
@@ -27,6 +32,10 @@ from database import (
     get_favorite_products,
     toggle_favorite,
     get_orders_by_user,
+    set_line_transaction,
+    get_order_for_payment,
+    complete_line_payment,
+    cancel_order_and_restore_stock,
 )
 
 
@@ -53,6 +62,45 @@ app.secret_key = os.environ.get(
     "FLASK_SECRET_KEY",
     "dev-only-change-this-secret-key"
 )
+
+
+def line_pay_request(path, body):
+    """Send a signed LINE Pay Online API v3 request."""
+    channel_id = os.environ.get("LINE_PAY_CHANNEL_ID", "").strip()
+    channel_secret = os.environ.get("LINE_PAY_CHANNEL_SECRET", "").strip()
+    if not channel_id or not channel_secret:
+        raise RuntimeError("尚未設定 LINE_PAY_CHANNEL_ID / LINE_PAY_CHANNEL_SECRET")
+    base_url = os.environ.get("LINE_PAY_API_BASE", "https://sandbox-api-pay.line.me").rstrip("/")
+    nonce = str(uuid.uuid4())
+    body_text = json.dumps(body, ensure_ascii=False, separators=(",", ":"))
+    message = channel_secret + path + body_text + nonce
+    signature = base64.b64encode(
+        hmac.new(channel_secret.encode(), message.encode(), hashlib.sha256).digest()
+    ).decode()
+    request = urllib.request.Request(
+        base_url + path,
+        data=body_text.encode("utf-8"),
+        headers={
+            "Content-Type": "application/json",
+            "X-LINE-ChannelId": channel_id,
+            "X-LINE-Authorization-Nonce": nonce,
+            "X-LINE-Authorization": signature,
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=15) as response:
+            result = json.loads(response.read().decode("utf-8"))
+    except (urllib.error.URLError, TimeoutError, ValueError) as error:
+        raise RuntimeError("無法連線 LINE Pay，請稍後重試") from error
+    if result.get("returnCode") != "0000":
+        raise RuntimeError("LINE Pay 請款失敗：" + str(result.get("returnMessage", result.get("returnCode", "未知錯誤"))))
+    return result.get("info", {})
+
+
+def linepay_callback_token(order_id):
+    secret = app.secret_key.encode("utf-8")
+    return hmac.new(secret, f"linepay:{order_id}".encode(), hashlib.sha256).hexdigest()
 
 # 啟動時確認資料表存在
 init_db()
@@ -448,31 +496,75 @@ def clear_cart():
 @app.post("/checkout")
 def checkout():
     cart = session.get("cart", {})
-
     if not cart:
         return redirect(url_for("index"))
 
+    order_id = None
     try:
         user = get_current_user()
-        order_id, total = create_order(
-            cart, user_id=user["id"] if user else None
-        )
-
-    except (ValueError, TypeError) as error:
+        order_id, total = create_order(cart, user_id=user["id"] if user else None, payment_method="linepay")
+        base_url = os.environ.get("LINE_PAY_CALLBACK_BASE_URL", request.url_root.rstrip("/"))
+        products = []
+        for key, quantity in cart.items():
+            product_id = int(str(key).split("|", 1)[0])
+            product = get_product_by_id(product_id)
+            if product:
+                products.append({"id": str(product_id), "name": product["name"][:100], "quantity": int(quantity), "price": product["price"]})
+        callback_token = linepay_callback_token(order_id)
+        info = line_pay_request("/v3/payments/request", {
+            "amount": total, "currency": "TWD", "orderId": str(order_id),
+            "packages": [{"id": str(order_id), "amount": total, "products": products}],
+            "redirectUrls": {
+                "confirmUrl": base_url + url_for("linepay_confirm", orderId=order_id, token=callback_token),
+                "cancelUrl": base_url + url_for("linepay_cancel", orderId=order_id, token=callback_token),
+            },
+        })
+        transaction_id = info.get("transactionId")
+        payment_url = (info.get("paymentUrl") or {}).get("web")
+        if not transaction_id or not payment_url:
+            raise RuntimeError("LINE Pay 回傳資料不完整，請稍後重試")
+        if not set_line_transaction(order_id, transaction_id):
+            raise RuntimeError("無法保存 LINE Pay 交易資料，請稍後重試")
+        session.pop("cart", None)
+        return redirect(payment_url)
+    except (ValueError, TypeError, RuntimeError) as error:
+        if order_id is not None:
+            cancel_order_and_restore_stock(order_id)
         flash(str(error), "warning")
+        return redirect(url_for("cart"))
+
+
+@app.get("/payment/linepay/confirm")
+def linepay_confirm():
+    order_id = request.args.get("orderId", type=int)
+    transaction_id = request.args.get("transactionId", type=str)
+    order = get_order_for_payment(order_id) if order_id else None
+    if (not order or not transaction_id or order["line_transaction_id"] != transaction_id
+            or not hmac.compare_digest(request.args.get("token", ""), linepay_callback_token(order_id))):
+        flash("找不到這筆 LINE Pay 付款資料。", "warning")
         return redirect(url_for("index"))
+    if order["status"] == "paid":
+        return render_template("checkout_success.html", order=get_order_details(order_id))
+    try:
+        line_pay_request(f"/v3/payments/{urllib.parse.quote(transaction_id, safe='')}/confirm", {"amount": order["total"], "currency": "TWD"})
+    except RuntimeError as error:
+        flash(str(error), "danger")
+        return redirect(url_for("order_history") if order["user_id"] else url_for("index"))
+    if complete_line_payment(order_id, transaction_id):
+        return render_template("checkout_success.html", order=get_order_details(order_id))
+    flash("LINE Pay 已回應付款，但訂單狀態尚未更新，請聯絡商店並提供訂單編號。", "warning")
+    return redirect(url_for("order_history") if order["user_id"] else url_for("index"))
 
-    # 從資料庫重新讀取剛建立的訂單
-    order = get_order_details(order_id)
 
-    # 訂單建立成功後才清空購物車
-    session.pop("cart", None)
-
-    return render_template(
-        "checkout_success.html",
-        order=order,
-    )
-
+@app.get("/payment/linepay/cancel")
+def linepay_cancel():
+    order_id = request.args.get("orderId", type=int)
+    if order_id and hmac.compare_digest(request.args.get("token", ""), linepay_callback_token(order_id)):
+        order = get_order_for_payment(order_id)
+        if order and order["payment_method"] == "linepay":
+            cancel_order_and_restore_stock(order_id)
+    flash("已取消 LINE Pay 付款，商品庫存已釋回。", "info")
+    return redirect(url_for("index"))
 
 if __name__ == "__main__":
     app.run(debug=True)

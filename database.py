@@ -219,6 +219,12 @@ def init_db():
             conn.execute(
                 "ALTER TABLE orders ADD COLUMN user_id INTEGER REFERENCES users(id) ON DELETE SET NULL"
             )
+        for column, definition in {
+            "payment_method": "TEXT NOT NULL DEFAULT 'manual'",
+            "line_transaction_id": "TEXT",
+        }.items():
+            if column not in order_columns:
+                conn.execute(f"ALTER TABLE orders ADD COLUMN {column} {definition}")
 
         # 訂單商品明細
         conn.execute("""
@@ -680,7 +686,7 @@ def delete_product_image(image_id, product_id):
         return row["image_url"]
 
 
-def create_order(cart, user_id=None):
+def create_order(cart, user_id=None, payment_method="manual"):
     """
     根據購物車建立訂單。
     cart 格式：{"1": 2, "3": 1}
@@ -729,9 +735,9 @@ def create_order(cart, user_id=None):
 
         # 建立訂單主表
         cursor = conn.execute("""
-            INSERT INTO orders (user_id, total, status)
-            VALUES (?, ?, 'pending')
-        """, (user_id, total))
+            INSERT INTO orders (user_id, total, status, payment_method)
+            VALUES (?, ?, 'pending', ?)
+        """, (user_id, total, payment_method))
 
         order_id = cursor.lastrowid
 
@@ -767,6 +773,53 @@ def create_order(cart, user_id=None):
         ])
 
         return order_id, total
+
+
+def set_line_transaction(order_id, transaction_id):
+    with get_connection() as conn:
+        cursor = conn.execute(
+            "UPDATE orders SET line_transaction_id = ? WHERE id = ? AND status = 'pending'",
+            (str(transaction_id), order_id),
+        )
+        return cursor.rowcount == 1
+
+
+def get_order_for_payment(order_id):
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT id, user_id, total, status, payment_method, line_transaction_id FROM orders WHERE id = ?",
+            (order_id,),
+        ).fetchone()
+        return dict(row) if row else None
+
+
+def complete_line_payment(order_id, transaction_id):
+    with get_connection() as conn:
+        cursor = conn.execute(
+            "UPDATE orders SET status = 'paid' WHERE id = ? AND status = 'pending' AND payment_method = 'linepay' AND line_transaction_id = ?",
+            (order_id, str(transaction_id)),
+        )
+        return cursor.rowcount == 1
+
+
+def cancel_order_and_restore_stock(order_id):
+    with get_connection() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        cursor = conn.execute(
+            "UPDATE orders SET status = 'cancelled' WHERE id = ? AND status = 'pending'",
+            (order_id,),
+        )
+        if cursor.rowcount != 1:
+            return False
+        items = conn.execute(
+            "SELECT product_id, quantity FROM order_items WHERE order_id = ? AND product_id IS NOT NULL",
+            (order_id,),
+        ).fetchall()
+        conn.executemany(
+            "UPDATE products SET stock = stock + ? WHERE id = ?",
+            [(item["quantity"], item["product_id"]) for item in items],
+        )
+        return True
 
 
 def set_product_stock(product_id, stock):
