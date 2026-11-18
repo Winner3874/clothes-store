@@ -1,6 +1,10 @@
 
 import os
+import json
+import secrets
 import sqlite3
+import urllib.parse
+import urllib.request
 from functools import wraps
 
 from flask import Flask, abort, flash, redirect, render_template, request, send_from_directory, session, url_for
@@ -15,6 +19,7 @@ from database import (
     get_order_details,
     create_user,
     get_user_by_username,
+    create_or_link_google_user,
     username_exists,
     update_user_password,
     get_user_by_id,
@@ -24,6 +29,24 @@ from database import (
     get_orders_by_user,
 )
 
+
+def load_local_env():
+    """Load simple KEY=VALUE entries from the git-ignored local .env file."""
+    env_path = os.path.join(os.path.dirname(__file__), ".env")
+    try:
+        with open(env_path, encoding="utf-8") as env_file:
+            for line in env_file:
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                key, value = line.split("=", 1)
+                value = value.strip().strip("\"'")
+                os.environ.setdefault(key.strip(), value)
+    except FileNotFoundError:
+        pass
+
+
+load_local_env()
 app = Flask(__name__)
 
 app.secret_key = os.environ.get(
@@ -48,6 +71,46 @@ def get_current_user():
 @app.context_processor
 def inject_current_user():
     return {"current_user": get_current_user(), "cart_count": sum(q for q in session.get("cart", {}).values() if isinstance(q, int) and q > 0)}
+
+
+def get_cart_items():
+    """Resolve the session cart into the rows expected by the cart template."""
+    cart = session.get("cart", {})
+    if not isinstance(cart, dict):
+        return [], 0
+
+    items = []
+    total = 0
+    for cart_key, quantity in cart.items():
+        try:
+            parts = str(cart_key).split("|", 2)
+            product_id = int(parts[0])
+            quantity = int(quantity)
+        except (TypeError, ValueError):
+            continue
+        if quantity < 1:
+            continue
+
+        product = get_product_by_id(product_id)
+        if product is None:
+            continue
+
+        color = parts[1] if len(parts) > 1 else ""
+        size = parts[2] if len(parts) > 2 else ""
+        subtotal = product["price"] * quantity
+        total += subtotal
+        items.append({
+            "id": product_id,
+            "name": product["name"],
+            "price": product["price"],
+            "stock": product["stock"],
+            "qty": quantity,
+            "subtotal": subtotal,
+            "cart_key": str(cart_key),
+            "color": color,
+            "size": size,
+        })
+    return items, total
 
 
 def login_required(view):
@@ -122,6 +185,10 @@ def register():
 
 @app.route("/login", methods=["GET", "POST"])
 def login():
+    next_url = request.form.get("next", "") if request.method == "POST" else request.args.get("next", "")
+    parsed_next = urllib.parse.urlsplit(next_url)
+    if not next_url.startswith("/") or next_url.startswith("//") or parsed_next.netloc or parsed_next.scheme:
+        next_url = ""
     if request.method == "POST":
         username = request.form.get("username", "").strip()
         password = request.form.get("password", "")
@@ -131,8 +198,81 @@ def login():
         else:
             session["user_id"] = user["id"]
             flash(f"歡迎回來，{user['username']}！", "success")
-            return redirect(url_for("index"))
-    return render_template("auth.html", mode="login")
+            return redirect(next_url or url_for("index"))
+    return render_template(
+        "auth.html",
+        mode="login",
+        login_required=request.args.get("required") == "1",
+        next_url=next_url,
+    )
+
+
+@app.get("/auth/google")
+def google_login():
+    client_id = os.environ.get("GOOGLE_CLIENT_ID")
+    if not client_id or not os.environ.get("GOOGLE_CLIENT_SECRET"):
+        flash("Google 登入尚未設定，請管理者設定 GOOGLE_CLIENT_ID 與 GOOGLE_CLIENT_SECRET。", "warning")
+        return redirect(url_for("login"))
+    state = secrets.token_urlsafe(32)
+    session["google_oauth_state"] = state
+    query = urllib.parse.urlencode({
+        "client_id": client_id,
+        "redirect_uri": url_for("google_callback", _external=True),
+        "response_type": "code",
+        "scope": "openid email profile",
+        "state": state,
+        "prompt": "select_account",
+    })
+    return redirect("https://accounts.google.com/o/oauth2/v2/auth?" + query)
+
+
+@app.get("/auth/google/callback")
+def google_callback():
+    expected_state = session.pop("google_oauth_state", None)
+    if not expected_state or not secrets.compare_digest(expected_state, request.args.get("state", "")):
+        flash("Google 登入驗證失敗，請重試。", "danger")
+        return redirect(url_for("login"))
+    code = request.args.get("code")
+    if not code:
+        flash("Google 登入未完成，請重試。", "warning")
+        return redirect(url_for("login"))
+    try:
+        token_request = urllib.request.Request(
+            "https://oauth2.googleapis.com/token",
+            data=urllib.parse.urlencode({
+                "code": code,
+                "client_id": os.environ["GOOGLE_CLIENT_ID"],
+                "client_secret": os.environ["GOOGLE_CLIENT_SECRET"],
+                "redirect_uri": url_for("google_callback", _external=True),
+                "grant_type": "authorization_code",
+            }).encode(),
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+        )
+        with urllib.request.urlopen(token_request, timeout=10) as response:
+            token_data = json.loads(response.read())
+        id_token = token_data.get("id_token")
+        if not id_token:
+            raise ValueError("Missing Google ID token")
+        with urllib.request.urlopen("https://oauth2.googleapis.com/tokeninfo?id_token=" + urllib.parse.quote(id_token), timeout=10) as response:
+            identity = json.loads(response.read())
+        if (identity.get("aud") != os.environ["GOOGLE_CLIENT_ID"]
+                or identity.get("iss") not in ("accounts.google.com", "https://accounts.google.com")
+                or identity.get("email_verified") != "true"
+                or not identity.get("sub") or not identity.get("email")):
+            raise ValueError("Invalid Google identity")
+        user = create_or_link_google_user(
+            identity.get("name", "Google 會員"),
+            identity["email"],
+            identity["sub"],
+            generate_password_hash(secrets.token_urlsafe(48)),
+        )
+    except (KeyError, ValueError, urllib.error.URLError, TimeoutError, json.JSONDecodeError) as error:
+        app.logger.warning("Google OAuth failed: %s", error)
+        flash("Google 登入目前無法完成，請稍後再試。", "danger")
+        return redirect(url_for("login"))
+    session["user_id"] = user["id"]
+    flash(f"登入成功，歡迎 {user['name']}！", "success")
+    return redirect(url_for("index"))
 
 
 @app.get("/profile")
@@ -212,12 +352,22 @@ def add_to_cart(product_id):
     product = get_product_by_id(product_id)
     if product is None:
         abort(404)
+    if get_current_user() is None:
+        return redirect(url_for(
+            "login",
+            required="1",
+            next=url_for("product_detail", product_id=product_id),
+        ))
     try:
         quantity = int(request.form.get("quantity", "1"))
     except (TypeError, ValueError):
         quantity = 0
-    colors = [value.strip() for value in product["colors"].split(",") if value.strip()]
-    sizes = [value.strip() for value in product["sizes"].split(",") if value.strip()]
+    colors = [value.strip() for value in (product.get("colors") or "Default").split(",") if value.strip()]
+    sizes = [value.strip() for value in (product.get("sizes") or "One size").split(",") if value.strip()]
+    # Keep the server-side accepted options aligned with the modal's fallback
+    # values when a product has no color or size options configured.
+    colors = colors or ["Default"]
+    sizes = sizes or ["One size"]
     color = request.form.get("color", colors[0] if colors else "")
     size = request.form.get("size", sizes[0] if sizes else "")
     if color not in colors or size not in sizes or quantity < 1 or quantity > 99:
@@ -236,7 +386,17 @@ def add_to_cart(product_id):
         return redirect(url_for("cart"))
     cart[key] = min(existing + quantity, 99)
     session["cart"] = cart
-    return redirect(url_for("cart"))
+    return_to = request.args.get("return_to", "")
+    parsed_return = urllib.parse.urlsplit(return_to)
+    if (not return_to.startswith("/") or return_to.startswith("//")
+            or parsed_return.netloc or parsed_return.scheme):
+        return_to = url_for("product_detail", product_id=product_id)
+    try:
+        scroll_y = max(0, min(int(request.form.get("scroll_y", "0")), 100000))
+    except (TypeError, ValueError):
+        scroll_y = 0
+    return_to += f"#scroll-y-{scroll_y}"
+    return redirect(return_to)
 
 
 @app.post("/cart/update/<int:product_id>")

@@ -154,7 +154,6 @@ def init_db():
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             )
         """)
-
         # Migrate the original email-login schema while preserving user IDs
         # referenced by favorites and orders.
         user_columns = {row["name"] for row in conn.execute("PRAGMA table_info(users)")}
@@ -174,7 +173,7 @@ def init_db():
                 email = old["email"]
                 base = (email.split("@", 1)[0] if email else "member").strip() or "member"
                 username, suffix = base, 1
-                while conn.execute("SELECT 1 FROM users WHERE username = ? COLLATE NOCASE", (username,)).fetchone():
+                while conn.execute("SELECT 1 FROM users_new WHERE username = ? COLLATE NOCASE", (username,)).fetchone():
                     suffix += 1
                     username = f"{base}{suffix}"
                 conn.execute(
@@ -184,6 +183,11 @@ def init_db():
             conn.execute("DROP TABLE users")
             conn.execute("ALTER TABLE users_new RENAME TO users")
             conn.execute("PRAGMA foreign_keys = ON")
+
+        user_columns = {row["name"] for row in conn.execute("PRAGMA table_info(users)")}
+        if "google_sub" not in user_columns:
+            conn.execute("ALTER TABLE users ADD COLUMN google_sub TEXT")
+        conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS users_google_sub_unique ON users(google_sub) WHERE google_sub IS NOT NULL")
 
         conn.execute("""
             CREATE TABLE IF NOT EXISTS favorites (
@@ -417,6 +421,36 @@ def get_user_by_username(username):
             (username.strip(),),
         ).fetchone()
         return dict(row) if row else None
+
+
+def get_user_by_google_sub(google_sub):
+    with get_connection() as conn:
+        row = conn.execute("SELECT id, name, username, email FROM users WHERE google_sub = ?", (google_sub,)).fetchone()
+        return dict(row) if row else None
+
+
+def create_or_link_google_user(name, email, google_sub, password_hash):
+    """Find an existing Google member, link a verified email, or create a member."""
+    email = email.strip().lower()
+    with get_connection() as conn:
+        row = conn.execute("SELECT id, name, username, email FROM users WHERE google_sub = ?", (google_sub,)).fetchone()
+        if row:
+            return dict(row)
+        row = conn.execute("SELECT id, name, username, email FROM users WHERE email = ? COLLATE NOCASE", (email,)).fetchone()
+        if row:
+            conn.execute("UPDATE users SET google_sub = ? WHERE id = ?", (google_sub, row["id"]))
+            return dict(row)
+        base = "".join(ch for ch in email.split("@", 1)[0] if ch.isalnum() or ch in "_-")[:32] or "member"
+        username, suffix = base, 1
+        while conn.execute("SELECT 1 FROM users WHERE username = ? COLLATE NOCASE", (username,)).fetchone():
+            suffix += 1
+            username = f"{base[:35]}{suffix}"
+        cursor = conn.execute(
+            "INSERT INTO users (name, username, email, password_hash, google_sub) VALUES (?, ?, ?, ?, ?)",
+            (name.strip()[:80] or username, username, email, password_hash, google_sub),
+        )
+        row = conn.execute("SELECT id, name, username, email FROM users WHERE id = ?", (cursor.lastrowid,)).fetchone()
+        return dict(row)
 
 
 def get_user_by_id(user_id):

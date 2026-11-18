@@ -48,7 +48,7 @@
                         {% if current_user %}<form class="favorite-form" action="{{ url_for('favorite_toggle', product_id=p.id) }}" method="post"><input type="hidden" name="source" value="listing"><button type="submit" aria-label="{% if p.id in favorite_product_ids %}取消收藏{% else %}收藏{% endif %}" title="{% if p.id in favorite_product_ids %}取消收藏{% else %}收藏{% endif %}">{% if p.id in favorite_product_ids %}♥{% else %}♡{% endif %}</button></form>{% endif %}
                         <div class="card-body"><span class="product-category">{{ p.category }}</span><div class="product-title-row"><h3><a href="{{ url_for('product_detail', product_id=p.id) }}">{{ p.name }}</a></h3><strong>NT$ {{ "{:,}".format(p.price) }}</strong></div><p class="product-description">{{ p.desc }}</p>
                             <p class="stock-label {% if p.stock == 0 %}out-of-stock{% elif p.stock <= 5 %}low-stock{% endif %}">剩餘數量：<strong>{{ p.stock }}</strong>{% if p.stock == 0 %} · 售完{% elif p.stock <= 5 %} · 數量有限{% endif %}</p>
-                            <button class="add-button" type="button" data-open-product-modal data-add-url="{{ url_for('add_to_cart', product_id=p.id) }}" data-product-name="{{ p.name|e }}" data-product-stock="{{ p.stock }}" data-color-options="{{ p.colors|e }}" data-size-options="{{ p.sizes|e }}" {% if p.stock == 0 %}disabled{% endif %}>&#36984;&#35215;&#26684;&#19979;&#21934;</button>
+                            <button class="add-button" type="button" data-open-product-modal data-add-url="{{ url_for('add_to_cart', product_id=p.id, return_to=request.full_path) }}" data-product-name="{{ p.name|e }}" data-product-stock="{{ p.stock }}" data-color-options="{{ p.colors|e }}" data-size-options="{{ p.sizes|e }}" {% if p.stock == 0 %}disabled{% endif %}>&#36984;&#35215;&#26684;&#19979;&#21934;</button><noscript><form action="{{ url_for('add_to_cart', product_id=p.id, return_to=request.full_path) }}" method="post"><label>&#39068;&#33394; <select name="color">{% for color in p.colors.split(',') %}<option>{{ color.strip() }}</option>{% endfor %}</select></label><label>&#23610;&#23544; <select name="size">{% for size in p.sizes.split(',') %}<option>{{ size.strip() }}</option>{% endfor %}</select></label><label>&#25976;&#37327; <input name="quantity" type="number" min="1" max="99" value="1"></label><button type="submit">&#21152;&#20837;&#36023;&#29289;&#36554;</button></form></noscript>
                         </div>
                     </article>{% endfor %}
                 </div>{% else %}<div class="empty-products"><span>⌕</span><h3>沒有找到符合的商品</h3><p>換個關鍵字或分類，再看看其他日常選物。</p><a href="{{ url_for('index') }}">查看全部商品 →</a></div>{% endif %}
@@ -57,6 +57,6 @@
         {% include "_product_order_modal.html" %}
         <footer class="store-footer"><span>StyleLab</span><span>讓日常，多一點喜歡。</span></footer>
     </main>
-    <script src="{{ url_for('static', filename='js/main.js', v=15) }}"></script>
+    <script src="{{ url_for('static', filename='js/main.js', v=17) }}"></script>
 </body>
 </html>

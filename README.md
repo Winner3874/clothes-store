@@ -57,3 +57,18 @@ python app.py
 ## 尚未完成
 
 商品仍是示範資料，結帳為示範流程，不會收款。`app.secret_key` 目前是開發用範例值，正式部署前必須改為環境變數中的隨機密鑰，並關閉 debug 模式。
+
+## Google 帳號登入設定
+
+1. 在 Google Cloud Console 建立 OAuth 2.0 網頁用戶端，授權重新導向 URI 設為 `http://127.0.0.1:5000/auth/google/callback`（正式站請換成正式網域）。
+2. 在專案根目錄建立 `.env`（已列入 `.gitignore`），填入 OAuth 憑證與固定的隨機 Flask 密鑰：
+
+```text
+GOOGLE_CLIENT_ID=你的用戶端 ID
+GOOGLE_CLIENT_SECRET=你的用戶端密鑰
+FLASK_SECRET_KEY=請設定隨機且固定的長字串
+```
+
+應用程式啟動時會讀取 `.env`；作業系統已設定的環境變數優先。
+
+Google 登入會以 Google 回傳的已驗證電子郵件識別會員；若該電子郵件已存在，會將 Google 身分連結到該會員。首次 Google 登入會自動建立會員。

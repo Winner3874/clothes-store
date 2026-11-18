@@ -14,6 +14,7 @@
         <h1 class="h3 mb-4">{% if mode == 'register' %}建立會員帳號{% else %}會員登入{% endif %}</h1>
         {% with messages = get_flashed_messages(with_categories=true) %}{% for category, message in messages %}<div class="alert alert-{{ category }}" role="status">{{ message }}</div>{% endfor %}{% endwith %}
         <form method="post">
+            {% if mode == 'login' and next_url %}<input type="hidden" name="next" value="{{ next_url }}">{% endif %}
             {% if mode == 'register' %}<div class="mb-3"><label class="form-label" for="name">姓名</label><input class="form-control" id="name" name="name" maxlength="80" autocomplete="name" required></div>{% endif %}
             <div class="mb-3"><label class="form-label" for="username">Username</label><input class="form-control" id="username" name="username" maxlength="40" autocomplete="username" required></div>
             {% if mode == 'register' %}<div class="mb-3"><label class="form-label" for="email">電子郵件（選填）</label><input class="form-control" id="email" name="email" type="email" maxlength="254" autocomplete="email"></div>{% endif %}
@@ -21,6 +22,9 @@
             {% if mode == 'register' %}<div class="mb-3"><label class="form-label" for="confirm_password">確認密碼</label><input class="form-control" id="confirm_password" name="confirm_password" type="password" minlength="8" maxlength="256" autocomplete="new-password" required></div>{% endif %}
             <button class="btn btn-primary w-100" type="submit">{% if mode == 'register' %}註冊{% else %}登入{% endif %}</button>
         </form>
+        {% if mode == 'login' and login_required %}<p class="text-danger text-center mt-3 mb-0" role="alert">您尚未登入</p>{% endif %}
+        <div class="d-flex align-items-center gap-3 my-3 text-muted" aria-hidden="true"><span class="border-top flex-grow-1"></span><small>或</small><span class="border-top flex-grow-1"></span></div>
+        <a class="btn btn-outline-dark w-100 d-flex align-items-center justify-content-center gap-2" href="{{ url_for('google_login') }}"><strong aria-hidden="true">G</strong>使用 Google 帳號{% if mode == 'register' %}註冊{% else %}登入{% endif %}</a>
         <p class="text-muted mt-3 mb-0">{% if mode == 'register' %}已經有帳號？<a href="{{ url_for('login') }}">登入</a>{% else %}還沒有帳號？<a href="{{ url_for('register') }}">註冊會員</a>{% endif %}</p>
     </section></main>
     <script src="{{ url_for('static', filename='js/main.js', v=9) }}"></script>
