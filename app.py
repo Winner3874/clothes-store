@@ -25,6 +25,9 @@ from database import (
     create_user,
     get_user_by_username,
     create_or_link_google_user,
+    get_user_by_google_sub,
+    get_user_by_email,
+    create_google_user,
     username_exists,
     update_user_password,
     get_user_by_id,
@@ -210,7 +213,7 @@ def register():
         if not name or len(name) > 80:
             flash("請輸入 1 到 80 個字的姓名。", "danger")
         elif not username or len(username) > 40 or not username.replace("_", "").replace("-", "").isalnum():
-            flash("Username 須為 1 到 40 個英數字、底線或連字號。", "danger")
+            flash("使用者名稱須為 1 到 40 個英數字、底線或連字號。", "danger")
         elif email and ("@" not in email or "." not in email or len(email) > 254):
             flash("請輸入有效的電子郵件地址。", "danger")
         elif len(password) < 8 or len(password) > 256:
@@ -218,12 +221,12 @@ def register():
         elif password != confirm_password:
             flash("兩次輸入的密碼不一致。", "danger")
         elif username_exists(username):
-            flash("這個 username 已經有人使用，請換一個。", "warning")
+            flash("\u9019\u500b\u4f7f\u7528\u8005\u540d\u7a31\u5df2\u6709\u4eba\u4f7f\u7528\uff0c\u8acb\u63db\u4e00\u500b\u3002", "warning")
         else:
             try:
                 user_id = create_user(name, username, email, generate_password_hash(password))
             except sqlite3.IntegrityError:
-                flash("username 或電子郵件已被使用。", "warning")
+                flash("\u4f7f\u7528\u8005\u540d\u7a31\u6216\u96fb\u5b50\u90f5\u4ef6\u5df2\u88ab\u4f7f\u7528\u3002", "warning")
             else:
                 session["user_id"] = user_id
                 flash("註冊成功，歡迎加入！", "success")
@@ -242,7 +245,7 @@ def login():
         password = request.form.get("password", "")
         user = get_user_by_username(username)
         if user is None or not check_password_hash(user["password_hash"], password):
-            flash("Username 或密碼不正確。", "danger")
+            flash("\u4f7f\u7528\u8005\u540d\u7a31\u6216\u5bc6\u78bc\u4e0d\u6b63\u78ba\u3002", "danger")
         else:
             session["user_id"] = user["id"]
             flash(f"歡迎回來，{user['username']}！", "success")
@@ -308,12 +311,20 @@ def google_callback():
                 or identity.get("email_verified") != "true"
                 or not identity.get("sub") or not identity.get("email")):
             raise ValueError("Invalid Google identity")
-        user = create_or_link_google_user(
-            identity.get("name", "Google 會員"),
-            identity["email"],
-            identity["sub"],
-            generate_password_hash(secrets.token_urlsafe(48)),
-        )
+        user = get_user_by_google_sub(identity["sub"])
+        if not user:
+            user = get_user_by_email(identity["email"])
+            if user:
+                user = create_or_link_google_user(
+                    identity.get("name", ""), identity["email"], identity["sub"],
+                    generate_password_hash(secrets.token_urlsafe(48)),
+                )
+            else:
+                session["pending_google_user"] = {
+                    "sub": identity["sub"], "email": identity["email"],
+                    "name": identity.get("name", "")
+                }
+                return redirect(url_for("google_register"))
     except (KeyError, ValueError, urllib.error.URLError, TimeoutError, json.JSONDecodeError) as error:
         app.logger.warning("Google OAuth failed: %s", error)
         flash("Google 登入目前無法完成，請稍後再試。", "danger")
@@ -321,6 +332,43 @@ def google_callback():
     session["user_id"] = user["id"]
     flash(f"登入成功，歡迎 {user['name']}！", "success")
     return redirect(url_for("index"))
+
+
+@app.route("/auth/google/register", methods=["GET", "POST"])
+def google_register():
+    pending = session.get("pending_google_user")
+    if not pending:
+        flash("請先使用 Google 帳號驗證。", "warning")
+        return redirect(url_for("login"))
+    if request.method == "POST":
+        name = request.form.get("name", "").strip()
+        username = request.form.get("username", "").strip()
+        if not name or len(name) > 80:
+            flash("姓名請輸入 1 到 80 個字元。", "danger")
+        elif not username or len(username) > 40 or not username.replace("_", "").replace("-", "").isalnum():
+            flash("使用者名稱須為 1 到 40 個英數字、底線或連字號。", "danger")
+        elif username_exists(username):
+            flash("這個使用者名稱已有人使用，請換一個。", "warning")
+        else:
+            try:
+                user_id = create_google_user(name, username, pending["email"], pending["sub"],
+                                            generate_password_hash(secrets.token_urlsafe(48)))
+            except sqlite3.IntegrityError:
+                flash("這個使用者名稱已有人使用，請換一個。", "warning")
+            else:
+                session.pop("pending_google_user", None)
+                session["user_id"] = user_id
+                flash(f"??????? {name}?", "success")
+                return redirect(url_for("index"))
+    base = "".join(ch for ch in pending["email"].split("@", 1)[0] if ch.isalnum() or ch in "_-")[:40]
+    suggested_username = base or ""
+    suffix = 1
+    while suggested_username and username_exists(suggested_username):
+        suffix += 1
+        suggested_username = f"{base[:max(1, 40 - len(str(suffix)))]}{suffix}"
+    return render_template("google_register.html", email=pending["email"],
+                           google_name=pending.get("name", ""),
+                           suggested_username=suggested_username)
 
 
 @app.get("/profile")
@@ -383,7 +431,11 @@ def favorite_toggle(product_id):
     if source == "favorites":
         return redirect(url_for("favorites"))
     if source == "listing":
-        return redirect(url_for("index"))
+        try:
+            scroll_y = max(0, min(int(request.form.get("scroll_y", "0")), 100000))
+        except (TypeError, ValueError):
+            scroll_y = 0
+        return redirect(url_for("index") + f"#scroll-y-{scroll_y}")
     return redirect(url_for("product_detail", product_id=product_id))
 
 
@@ -494,6 +546,7 @@ def clear_cart():
 
 
 @app.post("/checkout")
+@login_required
 def checkout():
     cart = session.get("cart", {})
     if not cart:

@@ -870,3 +870,6 @@ body.storefront { background:#f2f3f5 !important; color:#333; }
 .inventory-thumb img { width:100%; height:100%; object-fit:cover; }
 .inventory-thumb form { position:absolute; right:2px; bottom:2px; margin:0; }
 .inventory-thumb button { padding:2px 5px; border:0; border-radius:3px; background:#0009; color:#fff; font-size:.6rem; }
+
+/* Store navigation and centered listing favorite controls */
+.favorite-form button { box-sizing:border-box; padding:0; display:flex; align-items:center; justify-content:center; text-align:center; font-family:Arial,sans-serif; font-weight:400; }

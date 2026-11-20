@@ -435,6 +435,24 @@ def get_user_by_google_sub(google_sub):
         return dict(row) if row else None
 
 
+def get_user_by_email(email):
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT id, name, username, email FROM users WHERE email = ? COLLATE NOCASE",
+            (email.strip().lower(),),
+        ).fetchone()
+        return dict(row) if row else None
+
+
+def create_google_user(name, username, email, google_sub, password_hash):
+    with get_connection() as conn:
+        cursor = conn.execute(
+            "INSERT INTO users (name, username, email, password_hash, google_sub) VALUES (?, ?, ?, ?, ?)",
+            (name.strip(), username.strip(), email.strip().lower(), password_hash, google_sub),
+        )
+        return cursor.lastrowid
+
+
 def create_or_link_google_user(name, email, google_sub, password_hash):
     """Find an existing Google member, link a verified email, or create a member."""
     email = email.strip().lower()

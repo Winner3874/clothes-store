@@ -16,7 +16,7 @@
         <form method="post">
             {% if mode == 'login' and next_url %}<input type="hidden" name="next" value="{{ next_url }}">{% endif %}
             {% if mode == 'register' %}<div class="mb-3"><label class="form-label" for="name">姓名</label><input class="form-control" id="name" name="name" maxlength="80" autocomplete="name" required></div>{% endif %}
-            <div class="mb-3"><label class="form-label" for="username">Username</label><input class="form-control" id="username" name="username" maxlength="40" autocomplete="username" required></div>
+            <div class="mb-3"><label class="form-label" for="username">&#20351;&#29992;&#32773;&#21517;&#31281;</label><input class="form-control" id="username" name="username" maxlength="40" autocomplete="username" required></div>
             {% if mode == 'register' %}<div class="mb-3"><label class="form-label" for="email">電子郵件（選填）</label><input class="form-control" id="email" name="email" type="email" maxlength="254" autocomplete="email"></div>{% endif %}
             <div class="mb-3"><label class="form-label" for="password">密碼</label><input class="form-control" id="password" name="password" type="password" minlength="8" maxlength="256" autocomplete="{% if mode == 'register' %}new-password{% else %}current-password{% endif %}" required>{% if mode == 'register' %}<div class="form-text">密碼至少需要 8 個字元。</div>{% endif %}</div>
             {% if mode == 'register' %}<div class="mb-3"><label class="form-label" for="confirm_password">確認密碼</label><input class="form-control" id="confirm_password" name="confirm_password" type="password" minlength="8" maxlength="256" autocomplete="new-password" required></div>{% endif %}

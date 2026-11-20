@@ -94,6 +94,10 @@
             const scrollField = form.querySelector("[data-scroll-position]");
             if (scrollField) scrollField.value = String(Math.round(window.scrollY));
         }
+        if (form.matches(".favorite-form")) {
+            const scrollField = form.querySelector("[data-favorite-scroll]");
+            if (scrollField) scrollField.value = String(Math.round(window.scrollY));
+        }
         if (form.matches("[data-confirm-checkout]") && !window.confirm("\u78ba\u5b9a\u8981\u9001\u51fa\u8a02\u55ae\u55ce\uff1f")) {
             event.preventDefault();
             return;
