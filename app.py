@@ -482,7 +482,7 @@ def add_to_cart(product_id):
                           if str(old_key).split("|", 1)[0] == str(product_id)
                           and isinstance(value, int) and value > 0)
     if product["stock"] <= 0 or already_in_cart + quantity > product["stock"]:
-        flash(f"\u76ee\u524d\u5eab\u5b58\u50c5\u5269 {product['stock']} \u4ef6\u3002", "warning")
+        flash(f"此商品剩餘 {max(0, product['stock'] - already_in_cart)} 個。", "warning")
         return redirect(url_for("cart"))
     cart[key] = min(existing + quantity, 99)
     session["cart"] = cart
@@ -518,6 +518,8 @@ def update_cart_quantity(product_id):
         if max_quantity < 1:
             cart.pop(key, None)
         else:
+            if quantity > max_quantity:
+                flash(f"此商品剩餘 {max_quantity} 個。", "warning")
             cart[key] = min(max(1, quantity), max_quantity)
         session["cart"] = cart
     return redirect(url_for("cart"))

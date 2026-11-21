@@ -73,7 +73,7 @@
                     }));
                 };
                 dialog.querySelector("[data-dialog-product-name]").textContent = button.dataset.productName;
-                dialog.querySelector("[data-dialog-stock]").textContent = `In stock: ${stock}`;
+                dialog.querySelector("[data-dialog-stock]").textContent = `\u5269\u9918\u6578\u91CF\uFF1A${stock}`;
                 form.action = button.dataset.addUrl;
                 fill(colorSelect, button.dataset.colorOptions || "Default");
                 fill(sizeSelect, button.dataset.sizeOptions || "One size");

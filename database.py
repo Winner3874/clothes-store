@@ -1,6 +1,12 @@
 
 import sqlite3
+from difflib import SequenceMatcher
 from pathlib import Path
+
+try:
+    from pypinyin import lazy_pinyin
+except ImportError:
+    lazy_pinyin = None
 
 # 資料庫檔案放在目前專案的根目錄
 DB_PATH = Path(__file__).resolve().parent / "store.db"
@@ -385,12 +391,39 @@ def get_all_products(search="", category=""):
             SELECT id, name, price, description AS desc, image AS img, image_url,
                    categories, photos, category AS legacy_category, stock, rating, colors, sizes
             FROM products
-            WHERE (? = '' OR name LIKE ? OR description LIKE ?)
             ORDER BY id
-        """, (search, f"%{search}%", f"%{search}%")).fetchall()
+        """).fetchall()
         products = [_attach_product_images(conn, dict(row)) for row in rows]
         if category:
             products = [product for product in products if category in product["category_list"]]
+        query = "".join(search.casefold().split())
+        if query:
+            query_pronunciation = "".join(lazy_pinyin(query)) if lazy_pinyin else ""
+
+            def closest_window(needle, text):
+                if not needle or not text:
+                    return 0.0
+                width = min(len(text), len(needle) + 1)
+                return max((SequenceMatcher(None, needle, text[i:i + width]).ratio()
+                            for i in range(max(1, len(text) - width + 1))), default=0.0)
+
+            def relevance(product):
+                fields = [product.get("name", ""), product.get("desc", ""), product.get("category", "")]
+                best = 0.0
+                for field in fields:
+                    text = "".join(field.casefold().split())
+                    if query in text:
+                        score = 1.0 if text.startswith(query) else 0.9
+                    else:
+                        score = closest_window(query, text)
+                    if query_pronunciation and lazy_pinyin:
+                        field_pronunciation = "".join(lazy_pinyin(text))
+                        score = max(score, closest_window(query_pronunciation, field_pronunciation))
+                    best = max(best, score)
+                return best
+            scored = [(relevance(product), product) for product in products]
+            products = [product for score, product in sorted(scored, key=lambda item: item[0], reverse=True)
+                        if score >= 0.45]
         return products
 
 
