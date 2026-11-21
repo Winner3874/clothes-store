@@ -39,6 +39,13 @@ from database import (
     get_order_for_payment,
     complete_line_payment,
     cancel_order_and_restore_stock,
+    add_product,
+    update_product,
+    delete_product,
+    get_admin_orders,
+    update_admin_order_status,
+    log_admin_action,
+    get_admin_audit_logs,
 )
 
 
@@ -174,6 +181,18 @@ def login_required(view):
     return wrapped_view
 
 
+def seller_required(view):
+    @wraps(view)
+    def wrapped_view(*args, **kwargs):
+        user = get_current_user()
+        if user is None:
+            return redirect(url_for("login", next=request.path))
+        if user.get("role") != "admin":
+            abort(403)
+        return view(*args, **kwargs)
+    return wrapped_view
+
+
 @app.get("/")
 def index():
     search = request.args.get("q", "").strip()
@@ -249,7 +268,7 @@ def login():
         else:
             session["user_id"] = user["id"]
             flash(f"歡迎回來，{user['username']}！", "success")
-            return redirect(next_url or url_for("index"))
+            return redirect(next_url or (url_for("seller_dashboard") if user.get("role") == "admin" else url_for("index")))
     return render_template(
         "auth.html",
         mode="login",
@@ -331,7 +350,7 @@ def google_callback():
         return redirect(url_for("login"))
     session["user_id"] = user["id"]
     flash(f"登入成功，歡迎 {user['name']}！", "success")
-    return redirect(url_for("index"))
+    return redirect(url_for("seller_dashboard") if user.get("role") == "admin" else url_for("index"))
 
 
 @app.route("/auth/google/register", methods=["GET", "POST"])
@@ -445,6 +464,130 @@ def order_history():
     user = get_current_user()
     orders = get_orders_by_user(user["id"])
     return render_template("order_history.html", orders=orders)
+
+
+@app.get("/seller")
+@seller_required
+def seller_dashboard():
+    orders = get_admin_orders()
+    products = get_all_products()
+    counts = {status: sum(order["status"] == status for order in orders)
+              for status in ("pending", "paid", "shipped", "delivered", "cancelled")}
+    return render_template("seller_dashboard.html", counts=counts, product_count=len(products), order_count=len(orders))
+
+
+@app.get("/seller/orders")
+@seller_required
+def seller_orders():
+    statuses = {"pending", "paid", "shipped", "delivered", "cancelled"}
+    selected_status = request.args.get("status", "").strip()
+    if selected_status not in statuses:
+        selected_status = ""
+    return render_template("seller_orders.html", orders=get_admin_orders(selected_status), selected_status=selected_status)
+
+
+@app.post("/seller/orders/<int:order_id>/status")
+@seller_required
+def seller_update_order_status(order_id):
+    status = request.form.get("status", "")
+    labels = {"pending": "處理中", "paid": "已付款", "shipped": "已出貨", "delivered": "已送達", "cancelled": "已取消"}
+    if status not in labels:
+        abort(400)
+    user = get_current_user()
+    try:
+        previous = update_admin_order_status(order_id, status)
+    except ValueError as error:
+        flash(str(error), "warning")
+        return redirect(url_for("seller_orders", status=request.form.get("return_status", "")))
+    if previous is None:
+        abort(404)
+    if previous != status:
+        log_admin_action(user["id"], "order_status", "order", order_id,
+                         f"{labels[previous]} -> {labels[status]}")
+        flash(f"訂單 #{order_id} 狀態已更新為「{labels[status]}」。", "success")
+    current_filter = request.form.get("return_status", "")
+    next_filter = status if current_filter and status != "cancelled" else current_filter
+    return redirect(url_for("seller_orders", status=next_filter))
+
+
+def seller_product_form_values():
+    name = request.form.get("name", "").strip()
+    if not name or len(name) > 160:
+        raise ValueError("商品名稱請填寫 1 至 160 個字。")
+    try:
+        price = int(request.form.get("price", ""))
+        stock = int(request.form.get("stock", ""))
+        raw_rating = request.form.get("rating", "").strip()
+        rating = float(raw_rating) if raw_rating else None
+    except ValueError as error:
+        raise ValueError("價格、庫存和評分請輸入有效數字。") from error
+    if price < 0 or stock < 0 or (rating is not None and not 0 <= rating <= 5):
+        raise ValueError("價格與庫存不可小於 0，評分需介於 0 至 5。")
+    return {
+        "name": name, "price": price,
+        "description": request.form.get("description", "").strip(),
+        "categories": request.form.get("categories", "").strip(),
+        "stock": stock, "rating": rating,
+        "colors": request.form.get("colors", "").strip(),
+        "sizes": request.form.get("sizes", "").strip(),
+        "photos": request.form.get("photos", "").strip(),
+    }
+
+
+@app.route("/seller/products", methods=["GET", "POST"])
+@seller_required
+def seller_products():
+    if request.method == "POST":
+        try:
+            values = seller_product_form_values()
+            product_id = add_product(**values)
+        except (ValueError, TypeError) as error:
+            flash(str(error), "warning")
+        else:
+            user = get_current_user()
+            log_admin_action(user["id"], "product_created", "product", product_id, values["name"])
+            flash("商品已新增。", "success")
+            return redirect(url_for("seller_products"))
+    return render_template("seller_products.html", products=get_all_products())
+
+
+@app.route("/seller/products/<int:product_id>/edit", methods=["GET", "POST"])
+@seller_required
+def seller_edit_product(product_id):
+    product = get_product_by_id(product_id)
+    if product is None:
+        abort(404)
+    if request.method == "POST":
+        try:
+            values = seller_product_form_values()
+            update_product(product_id, **values)
+        except (ValueError, TypeError) as error:
+            flash(str(error), "warning")
+        else:
+            user = get_current_user()
+            log_admin_action(user["id"], "product_updated", "product", product_id, values["name"])
+            flash("商品資料已更新。", "success")
+            return redirect(url_for("seller_products"))
+    return render_template("seller_product_form.html", product=product)
+
+
+@app.post("/seller/products/<int:product_id>/delete")
+@seller_required
+def seller_delete_product(product_id):
+    product = get_product_by_id(product_id)
+    if product is None:
+        abort(404)
+    if delete_product(product_id):
+        user = get_current_user()
+        log_admin_action(user["id"], "product_deleted", "product", product_id, product["name"])
+        flash("商品已刪除。", "success")
+    return redirect(url_for("seller_products"))
+
+
+@app.get("/seller/audit")
+@seller_required
+def seller_audit():
+    return render_template("seller_audit.html", logs=get_admin_audit_logs())
 
 
 @app.post("/add/<int:product_id>")

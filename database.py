@@ -157,6 +157,7 @@ def init_db():
                 username TEXT NOT NULL UNIQUE COLLATE NOCASE,
                 email TEXT UNIQUE COLLATE NOCASE,
                 password_hash TEXT NOT NULL,
+                role TEXT NOT NULL DEFAULT 'customer',
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             )
         """)
@@ -172,6 +173,7 @@ def init_db():
                     username TEXT NOT NULL UNIQUE COLLATE NOCASE,
                     email TEXT UNIQUE COLLATE NOCASE,
                     password_hash TEXT NOT NULL,
+                    role TEXT NOT NULL DEFAULT 'customer',
                     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
                 )
             """)
@@ -191,9 +193,24 @@ def init_db():
             conn.execute("PRAGMA foreign_keys = ON")
 
         user_columns = {row["name"] for row in conn.execute("PRAGMA table_info(users)")}
+        if "role" not in user_columns:
+            conn.execute("ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'customer'")
         if "google_sub" not in user_columns:
             conn.execute("ALTER TABLE users ADD COLUMN google_sub TEXT")
         conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS users_google_sub_unique ON users(google_sub) WHERE google_sub IS NOT NULL")
+
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS admin_audit_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                actor_id INTEGER,
+                action TEXT NOT NULL,
+                target_type TEXT NOT NULL,
+                target_id INTEGER,
+                details TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (actor_id) REFERENCES users(id) ON DELETE SET NULL
+            )
+        """)
 
         conn.execute("""
             CREATE TABLE IF NOT EXISTS favorites (
@@ -231,6 +248,7 @@ def init_db():
         }.items():
             if column not in order_columns:
                 conn.execute(f"ALTER TABLE orders ADD COLUMN {column} {definition}")
+        conn.execute("UPDATE orders SET status = 'delivered' WHERE status = 'completed'")
 
         # 訂單商品明細
         conn.execute("""
@@ -445,10 +463,11 @@ def get_product_categories():
 
 
 def create_user(name, username, email, password_hash):
+    normalized_email = email.strip().lower() or None if isinstance(email, str) else None
     with get_connection() as conn:
         cursor = conn.execute(
             "INSERT INTO users (name, username, email, password_hash) VALUES (?, ?, ?, ?)",
-            (name.strip(), username.strip(), email.strip().lower() or None, password_hash),
+            (name.strip(), username.strip(), normalized_email, password_hash),
         )
         return cursor.lastrowid
 
@@ -456,7 +475,7 @@ def create_user(name, username, email, password_hash):
 def get_user_by_username(username):
     with get_connection() as conn:
         row = conn.execute(
-            "SELECT id, name, username, email, password_hash FROM users WHERE username = ? COLLATE NOCASE",
+            "SELECT id, name, username, email, password_hash, role FROM users WHERE username = ? COLLATE NOCASE",
             (username.strip(),),
         ).fetchone()
         return dict(row) if row else None
@@ -464,14 +483,14 @@ def get_user_by_username(username):
 
 def get_user_by_google_sub(google_sub):
     with get_connection() as conn:
-        row = conn.execute("SELECT id, name, username, email FROM users WHERE google_sub = ?", (google_sub,)).fetchone()
+        row = conn.execute("SELECT id, name, username, email, role FROM users WHERE google_sub = ?", (google_sub,)).fetchone()
         return dict(row) if row else None
 
 
 def get_user_by_email(email):
     with get_connection() as conn:
         row = conn.execute(
-            "SELECT id, name, username, email FROM users WHERE email = ? COLLATE NOCASE",
+            "SELECT id, name, username, email, role FROM users WHERE email = ? COLLATE NOCASE",
             (email.strip().lower(),),
         ).fetchone()
         return dict(row) if row else None
@@ -490,10 +509,10 @@ def create_or_link_google_user(name, email, google_sub, password_hash):
     """Find an existing Google member, link a verified email, or create a member."""
     email = email.strip().lower()
     with get_connection() as conn:
-        row = conn.execute("SELECT id, name, username, email FROM users WHERE google_sub = ?", (google_sub,)).fetchone()
+        row = conn.execute("SELECT id, name, username, email, role FROM users WHERE google_sub = ?", (google_sub,)).fetchone()
         if row:
             return dict(row)
-        row = conn.execute("SELECT id, name, username, email FROM users WHERE email = ? COLLATE NOCASE", (email,)).fetchone()
+        row = conn.execute("SELECT id, name, username, email, role FROM users WHERE email = ? COLLATE NOCASE", (email,)).fetchone()
         if row:
             conn.execute("UPDATE users SET google_sub = ? WHERE id = ?", (google_sub, row["id"]))
             return dict(row)
@@ -506,16 +525,24 @@ def create_or_link_google_user(name, email, google_sub, password_hash):
             "INSERT INTO users (name, username, email, password_hash, google_sub) VALUES (?, ?, ?, ?, ?)",
             (name.strip()[:80] or username, username, email, password_hash, google_sub),
         )
-        row = conn.execute("SELECT id, name, username, email FROM users WHERE id = ?", (cursor.lastrowid,)).fetchone()
+        row = conn.execute("SELECT id, name, username, email, role FROM users WHERE id = ?", (cursor.lastrowid,)).fetchone()
         return dict(row)
 
 
 def get_user_by_id(user_id):
     with get_connection() as conn:
         row = conn.execute(
-            "SELECT id, name, username, email FROM users WHERE id = ?", (user_id,)
+            "SELECT id, name, username, email, role FROM users WHERE id = ?", (user_id,)
         ).fetchone()
         return dict(row) if row else None
+
+
+def set_user_role(user_id, role):
+    if role not in ("customer", "admin"):
+        raise ValueError("unsupported user role")
+    with get_connection() as conn:
+        cursor = conn.execute("UPDATE users SET role = ? WHERE id = ?", (role, user_id))
+        return cursor.rowcount == 1
 
 
 def username_exists(username):
@@ -581,6 +608,63 @@ def get_orders_by_user(user_id):
             order["items"] = [dict(item) for item in items]
             orders.append(order)
         return orders
+
+
+def get_admin_orders(status=""):
+    with get_connection() as conn:
+        query = """
+            SELECT o.id, o.total, o.status, o.created_at, o.payment_method,
+                   u.name AS customer_name, u.username AS customer_username, u.email AS customer_email
+            FROM orders o LEFT JOIN users u ON u.id = o.user_id
+        """
+        params = ()
+        if status:
+            query += " WHERE o.status = ?"
+            params = (status,)
+        query += " ORDER BY o.id DESC"
+        orders = [dict(row) for row in conn.execute(query, params).fetchall()]
+        for order in orders:
+            rows = conn.execute("""
+                SELECT product_name, quantity, unit_price, selected_options
+                FROM order_items WHERE order_id = ? ORDER BY id
+            """, (order["id"],)).fetchall()
+            order["items"] = [dict(row) for row in rows]
+        return orders
+
+
+def update_admin_order_status(order_id, status):
+    allowed = {"pending", "paid", "shipped", "delivered", "cancelled"}
+    if status not in allowed:
+        raise ValueError("unsupported order status")
+    with get_connection() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        order = conn.execute("SELECT status FROM orders WHERE id = ?", (order_id,)).fetchone()
+        if order is None:
+            return None
+        old_status = order["status"]
+        if old_status == status:
+            return old_status
+        conn.execute("UPDATE orders SET status = ? WHERE id = ?", (status, order_id))
+        return old_status
+
+
+def log_admin_action(actor_id, action, target_type, target_id=None, details=""):
+    with get_connection() as conn:
+        conn.execute(
+            "INSERT INTO admin_audit_logs (actor_id, action, target_type, target_id, details) VALUES (?, ?, ?, ?, ?)",
+            (actor_id, action, target_type, target_id, details[:500]),
+        )
+
+
+def get_admin_audit_logs(limit=100):
+    with get_connection() as conn:
+        rows = conn.execute("""
+            SELECT l.id, l.action, l.target_type, l.target_id, l.details, l.created_at,
+                   u.name AS actor_name, u.username AS actor_username
+            FROM admin_audit_logs l LEFT JOIN users u ON u.id = l.actor_id
+            ORDER BY l.id DESC LIMIT ?
+        """, (max(1, min(int(limit), 500)),)).fetchall()
+        return [dict(row) for row in rows]
 
 
 def add_product(name, price, description="", image="", *, image_url="", photos="", category="", categories=None, stock=20, rating=5, colors="Black,White", sizes="S,M,L"):

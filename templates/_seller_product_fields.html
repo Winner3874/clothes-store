@@ -1,0 +1,13 @@
+{% macro product_fields(product=None) %}
+<div class="seller-form-grid">
+ <label>&#21830;&#21697;&#21517;&#31281;<input name="name" maxlength="160" value="{{ product.name if product else '' }}" required></label>
+ <label>&#21830;&#21697;&#20729;&#26684;<input name="price" type="number" min="0" value="{{ product.price if product else 0 }}" required></label>
+ <label>&#24235;&#23384;&#25976;&#37327;<input name="stock" type="number" min="0" value="{{ product.stock if product else 0 }}" required></label>
+ <label>&#35413;&#20998; (0&ndash;5)<input name="rating" type="number" min="0" max="5" step="0.1" value="{{ product.rating if product and product.rating is not none else '' }}"></label>
+ <label>&#21830;&#21697;&#20998;&#39006; <small>&#22810;&#20491;&#20998;&#39006;&#29992;&#36887;&#34399;&#20998;&#38283;</small><input name="categories" value="{{ product.categories if product else '' }}"></label>
+ <label>&#38991;&#33394;&#28165;&#21934; <small>&#29992;&#36887;&#34399;&#20998;&#38283;</small><input name="colors" value="{{ product.colors if product else 'Black,White' }}"></label>
+ <label>&#23610;&#23544;&#28165;&#21934; <small>&#29992;&#36887;&#34399;&#20998;&#38283;</small><input name="sizes" value="{{ product.sizes if product else 'S,M,L' }}"></label>
+ <label class="seller-form-wide">&#21830;&#21697;&#29031;&#29255; <small>&#26412;&#27284;&#26696;&#21517;&#31281;(&#20197;&#36887;&#34399;&#20998;&#38283;)&#25110;&#23436;&#25972;&#32178;&#22336;</small><input name="photos" value="{{ (product.photos or product.image_url) if product else '' }}"></label>
+ <label class="seller-form-wide">&#21830;&#21697;&#25551;&#36848;<textarea name="description" rows="4">{{ product.desc if product else '' }}</textarea></label>
+</div>
+{% endmacro %}

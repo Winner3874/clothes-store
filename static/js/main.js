@@ -2,6 +2,27 @@
     const formatPrice = (amount) => new Intl.NumberFormat("zh-TW").format(amount);
 
     const initializeInteractions = () => {
+        document.querySelectorAll("[data-status-filter]").forEach((select) => {
+            if (select.dataset.bound) return;
+            select.dataset.bound = "true";
+            select.addEventListener("change", () => select.form?.requestSubmit());
+        });
+
+        document.querySelectorAll("[data-order-status-form]").forEach((form) => {
+            const select = form.querySelector("[data-order-status-input]");
+            const notice = form.querySelector("[data-unsaved-status]");
+            const saveButton = form.querySelector("[data-save-order-status]");
+            if (!select || !notice || !saveButton || form.dataset.bound) return;
+            form.dataset.bound = "true";
+            const updateDirtyState = () => {
+                const changed = select.value !== form.dataset.originalStatus;
+                notice.hidden = !changed;
+                saveButton.disabled = !changed;
+            };
+            select.addEventListener("change", updateDirtyState);
+            updateDirtyState();
+        });
+
         document.querySelectorAll("[data-cart-row]").forEach((row) => {
             const quantityInput = row.querySelector("[data-cart-quantity]");
             if (!quantityInput || quantityInput.dataset.bound) return;
