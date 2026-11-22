@@ -82,8 +82,6 @@ def init_db():
                 name TEXT NOT NULL,
                 price INTEGER NOT NULL CHECK (price >= 0),
                 description TEXT NOT NULL DEFAULT '',
-                image TEXT NOT NULL DEFAULT '',
-                image_url TEXT NOT NULL DEFAULT '',
                 categories TEXT NOT NULL DEFAULT '',
                 photos TEXT NOT NULL DEFAULT '',
                 category TEXT NOT NULL DEFAULT '其他',
@@ -108,7 +106,6 @@ def init_db():
 
         product_columns = {row["name"] for row in conn.execute("PRAGMA table_info(products)")}
         for column, definition in {
-            "image_url": "TEXT NOT NULL DEFAULT ''",
             "categories": "TEXT NOT NULL DEFAULT ''",
             "photos": "TEXT NOT NULL DEFAULT ''",
             "rating": "REAL DEFAULT 5 CHECK (rating IS NULL OR (rating >= 0 AND rating <= 5))",
@@ -191,6 +188,9 @@ def init_db():
             conn.execute("DROP TABLE users")
             conn.execute("ALTER TABLE users_new RENAME TO users")
             conn.execute("PRAGMA foreign_keys = ON")
+        user_columns = {row["name"] for row in conn.execute("PRAGMA table_info(users)")}
+        if "avatar_url" not in user_columns:
+            conn.execute("ALTER TABLE users ADD COLUMN avatar_url TEXT NOT NULL DEFAULT ''")
 
         user_columns = {row["name"] for row in conn.execute("PRAGMA table_info(users)")}
         if "role" not in user_columns:
@@ -282,9 +282,9 @@ def init_db():
         if count == 0:
             conn.executemany("""
                 INSERT INTO products
-                    (name, price, description, image, category, stock)
-                VALUES (?, ?, ?, ?, ?, ?)
-            """, [(*product, 20) for product in INITIAL_PRODUCTS])
+                    (name, price, description, category, stock)
+                VALUES (?, ?, ?, ?, ?)
+            """, [(product[0], product[1], product[2], product[4], 20) for product in INITIAL_PRODUCTS])
 
         migrated = conn.execute(
             "SELECT 1 FROM schema_migrations WHERE version = 'product-categories-v1'"
@@ -304,11 +304,13 @@ def init_db():
             "SELECT 1 FROM schema_migrations WHERE version = 'product-images-v1'"
         ).fetchone()
         if not migrated_images:
-            for product in conn.execute("SELECT id, image_url FROM products WHERE image_url <> ''").fetchall():
-                conn.execute(
-                    "INSERT INTO product_images (product_id, image_url, sort_order) VALUES (?, ?, 0)",
-                    (product["id"], product["image_url"]),
-                )
+            current_columns = {row["name"] for row in conn.execute("PRAGMA table_info(products)")}
+            if "image_url" in current_columns:
+                for product in conn.execute("SELECT id, image_url FROM products WHERE image_url <> ''").fetchall():
+                    conn.execute(
+                        "INSERT INTO product_images (product_id, image_url, sort_order) VALUES (?, ?, 0)",
+                        (product["id"], product["image_url"]),
+                    )
             conn.execute(
                 "INSERT INTO schema_migrations (version) VALUES ('product-images-v1')"
             )
@@ -317,7 +319,9 @@ def init_db():
             "SELECT 1 FROM schema_migrations WHERE version = 'product-csv-fields-v1'"
         ).fetchone()
         if not migrated_csv:
-            for product in conn.execute("SELECT id, category, image_url FROM products").fetchall():
+            current_columns = {row["name"] for row in conn.execute("PRAGMA table_info(products)")}
+            legacy_image_column = ", image_url" if "image_url" in current_columns else ""
+            for product in conn.execute(f"SELECT id, category{legacy_image_column} FROM products").fetchall():
                 category_rows = conn.execute(
                     "SELECT category FROM product_categories WHERE product_id = ? ORDER BY category",
                     (product["id"],),
@@ -333,7 +337,7 @@ def init_db():
                 for row in image_rows:
                     value = row["image_url"]
                     photos.append(Path(value).name if value.startswith("/static/uploads/products/") else value)
-                if not photos and product["image_url"]:
+                if not photos and "image_url" in current_columns and product["image_url"]:
                     value = product["image_url"]
                     photos = [Path(value).name if value.startswith("/static/uploads/products/") else value]
                 conn.execute(
@@ -343,6 +347,32 @@ def init_db():
             conn.execute(
                 "INSERT INTO schema_migrations (version) VALUES ('product-csv-fields-v1')"
             )
+
+        # Keep photos as the only product-level image field. Merge old values first.
+        product_columns = {row["name"] for row in conn.execute("PRAGMA table_info(products)")}
+        if "image_url" in product_columns:
+            for product in conn.execute("SELECT id, photos, image_url FROM products").fetchall():
+                photos = _split_csv(product["photos"])
+                if product["image_url"]:
+                    value = product["image_url"]
+                    value = Path(value).name if value.startswith("/static/uploads/products/") else value
+                    if value not in photos:
+                        photos.insert(0, value)
+                rows = conn.execute(
+                    "SELECT image_url FROM product_images WHERE product_id = ? ORDER BY sort_order, id",
+                    (product["id"],),
+                ).fetchall()
+                for row in rows:
+                    value = row["image_url"]
+                    value = Path(value).name if value.startswith("/static/uploads/products/") else value
+                    if value not in photos:
+                        photos.append(value)
+                conn.execute("UPDATE products SET photos = ? WHERE id = ?", (",".join(photos), product["id"]))
+        product_columns = {row["name"] for row in conn.execute("PRAGMA table_info(products)")}
+        for legacy_column in ("image_url", "image"):
+            if legacy_column in product_columns:
+                conn.execute(f"ALTER TABLE products DROP COLUMN {legacy_column}")
+                product_columns.remove(legacy_column)
 
 
 def _split_csv(value):
@@ -379,9 +409,6 @@ def _attach_product_images(conn, product):
     ).fetchall()
     if not stored_names:
         stored_names = [row["image_url"] for row in table_rows]
-    if not stored_names and product.get("image_url"):
-        stored_names = [product["image_url"]]
-
     images = []
     for name in stored_names:
         image_url = _resolve_product_image(name)
@@ -393,7 +420,6 @@ def _attach_product_images(conn, product):
         if resolved:
             record_by_url[resolved] = row["id"]
     product["images"] = images
-    product["image_url"] = images[0] if images else ""
     product["image_records"] = [
         {"id": record_by_url.get(url), "image_url": url} for url in images
     ]
@@ -406,7 +432,7 @@ def _attach_product_images(conn, product):
 def get_all_products(search="", category=""):
     with get_connection() as conn:
         rows = conn.execute("""
-            SELECT id, name, price, description AS desc, image AS img, image_url,
+            SELECT id, name, price, description AS desc,
                    categories, photos, category AS legacy_category, stock, rating, colors, sizes
             FROM products
             ORDER BY id
@@ -448,7 +474,7 @@ def get_all_products(search="", category=""):
 def get_product_by_id(product_id):
     with get_connection() as conn:
         row = conn.execute("""
-            SELECT id, name, price, description AS desc, image AS img, image_url,
+            SELECT id, name, price, description AS desc,
                    categories, photos, category AS legacy_category, stock, rating, colors, sizes
             FROM products WHERE id = ?
         """, (product_id,)).fetchone()
@@ -532,9 +558,14 @@ def create_or_link_google_user(name, email, google_sub, password_hash):
 def get_user_by_id(user_id):
     with get_connection() as conn:
         row = conn.execute(
-            "SELECT id, name, username, email, role FROM users WHERE id = ?", (user_id,)
+            "SELECT id, name, username, email, role, avatar_url FROM users WHERE id = ?", (user_id,)
         ).fetchone()
         return dict(row) if row else None
+
+
+def update_user_avatar(user_id, avatar_url):
+    with get_connection() as conn:
+        conn.execute("UPDATE users SET avatar_url = ? WHERE id = ?", (avatar_url, user_id))
 
 
 def set_user_role(user_id, role):
@@ -667,7 +698,7 @@ def get_admin_audit_logs(limit=100):
         return [dict(row) for row in rows]
 
 
-def add_product(name, price, description="", image="", *, image_url="", photos="", category="", categories=None, stock=20, rating=5, colors="Black,White", sizes="S,M,L"):
+def add_product(name, price, description="", *, photos="", category="", categories=None, stock=20, rating=5, colors="Black,White", sizes="S,M,L"):
     """新增商品，回傳新商品的 ID。"""
     if not isinstance(name, str) or not name.strip():
         raise ValueError("name is required")
@@ -684,20 +715,18 @@ def add_product(name, price, description="", image="", *, image_url="", photos="
         category_values = list(dict.fromkeys(value.strip() for value in category_source if isinstance(value, str) and value.strip()))
     else:
         raise ValueError("categories must be a string or a list of strings")
-    if not all(isinstance(value, str) for value in (description, image, image_url, photos, colors, sizes)):
+    if not all(isinstance(value, str) for value in (description, photos, colors, sizes)):
         raise ValueError("product text fields must be strings")
 
     category_text = ",".join(category_values)
     photo_values = _split_csv(photos)
-    if image_url and not photo_values:
-        photo_values = [image_url]
     photos_text = ",".join(photo_values)
     with get_connection() as conn:
         cursor = conn.execute("""
             INSERT INTO products
-                (name, price, description, image, image_url, categories, photos, category, stock, rating, colors, sizes)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (name.strip(), price, description, image, image_url, category_text, photos_text, category_text, stock, rating, colors, sizes))
+                (name, price, description, categories, photos, category, stock, rating, colors, sizes)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (name.strip(), price, description, category_text, photos_text, category_text, stock, rating, colors, sizes))
         product_id = cursor.lastrowid
         conn.executemany(
             "INSERT INTO product_categories (product_id, category) VALUES (?, ?)",
@@ -747,9 +776,6 @@ def update_product(product_id, **fields):
         for order, photo in enumerate(photo_values):
             normalized = photo if photo.startswith(("http://", "https://", "/")) else "/static/uploads/products/" + Path(photo).name
             conn.execute("INSERT INTO product_images (product_id, image_url, sort_order) VALUES (?, ?, ?)", (product_id, normalized, order))
-        first_photo = photo_values[0] if photo_values else ""
-        image_url = first_photo if first_photo.startswith(("http://", "https://", "/")) else "/static/uploads/products/" + Path(first_photo).name if first_photo else ""
-        conn.execute("UPDATE products SET image_url = ? WHERE id = ?", (image_url, product_id))
         return True
 
 
@@ -763,19 +789,10 @@ def add_product_image(product_id, image_url):
     with get_connection() as conn:
         if conn.execute("SELECT 1 FROM products WHERE id = ?", (product_id,)).fetchone() is None:
             return None
-        product = conn.execute(
-            "SELECT image_url FROM products WHERE id = ?", (product_id,)
-        ).fetchone()
         order = conn.execute(
             "SELECT COALESCE(MAX(sort_order), -1) + 1 FROM product_images WHERE product_id = ?",
             (product_id,),
         ).fetchone()[0]
-        if order == 0 and product["image_url"] and product["image_url"] != image_url:
-            conn.execute(
-                "INSERT INTO product_images (product_id, image_url, sort_order) VALUES (?, ?, 0)",
-                (product_id, product["image_url"]),
-            )
-            order = 1
         cursor = conn.execute(
             "INSERT INTO product_images (product_id, image_url, sort_order) VALUES (?, ?, ?)",
             (product_id, image_url, order),
@@ -785,11 +802,9 @@ def add_product_image(product_id, image_url):
         photo_values = _split_csv(existing)
         if filename not in photo_values:
             photo_values.append(filename)
-        first_photo = photo_values[0] if photo_values else ""
-        first_url = first_photo if first_photo.startswith(("http://", "https://", "/")) else _resolve_product_image(first_photo)
         conn.execute(
-            "UPDATE products SET photos = ?, image_url = ? WHERE id = ?",
-            (",".join(photo_values), first_url, product_id),
+            "UPDATE products SET photos = ? WHERE id = ?",
+            (",".join(photo_values), product_id),
         )
         return cursor.lastrowid
 
@@ -803,20 +818,12 @@ def delete_product_image(image_id, product_id):
         if row is None:
             return None
         conn.execute("DELETE FROM product_images WHERE id = ?", (image_id,))
-        first = conn.execute(
-            "SELECT image_url FROM product_images WHERE product_id = ? ORDER BY sort_order, id LIMIT 1",
-            (product_id,),
-        ).fetchone()
         product = conn.execute("SELECT photos FROM products WHERE id = ?", (product_id,)).fetchone()
         removed_name = Path(row["image_url"]).name if row["image_url"].startswith("/static/uploads/products/") else row["image_url"]
         remaining = [value for value in _split_csv(product["photos"]) if value != removed_name]
-        first_url = first["image_url"] if first else (
-            remaining[0] if remaining and remaining[0].startswith(("http://", "https://", "/"))
-            else _resolve_product_image(remaining[0]) if remaining else ""
-        )
         conn.execute(
-            "UPDATE products SET photos = ?, image_url = ? WHERE id = ?",
-            (",".join(remaining), first_url, product_id),
+            "UPDATE products SET photos = ? WHERE id = ?",
+            (",".join(remaining), product_id),
         )
         return row["image_url"]
 

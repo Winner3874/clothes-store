@@ -944,3 +944,60 @@ body.storefront { background:#f2f3f5 !important; color:#333; }
 
 /* Store navigation and centered listing favorite controls */
 .favorite-form button { box-sizing:border-box; padding:0; display:flex; align-items:center; justify-content:center; text-align:center; font-family:Arial,sans-serif; font-weight:400; }
+
+
+/* Buyer order progress and compact product photo galleries */
+.order-filter { margin:0 0 18px; }
+.order-progress { display:flex; align-items:flex-start; margin:20px 0 24px; padding:0; list-style:none; }
+.order-progress li { position:relative; display:flex; flex:1; flex-direction:column; align-items:center; gap:7px; color:#92979b; text-align:center; }
+.order-progress li::before { position:absolute; z-index:0; top:15px; right:50%; width:100%; height:3px; background:#e3e5e7; content:""; }
+.order-progress li:first-child::before { display:none; }
+.order-progress li.is-complete::before { background:#4c8b68; }
+.order-progress li>span { z-index:1; display:grid; width:32px; height:32px; place-items:center; border:2px solid #d9dcde; border-radius:50%; background:#fff; font-size:.8rem; }
+.order-progress li.is-complete>span { border-color:#4c8b68; background:#4c8b68; color:#fff; }
+.order-progress li.is-current { color:#315d42; font-weight:700; }
+.order-progress li small { font-size:.75rem; }
+.order-cancelled { color:#a33b36; font-weight:650; }
+.gallery-main-wrap { position:relative; }
+.gallery-arrow,.card-gallery-arrow { position:absolute; z-index:2; display:grid; width:38px; height:38px; place-items:center; border:0; border-radius:50%; background:#fffE; color:#302d29; box-shadow:0 2px 10px #0002; font-size:1.6rem; line-height:1; }
+.gallery-arrow:hover,.card-gallery-arrow:hover { background:#fff; }
+.gallery-prev { left:10px; top:50%; transform:translateY(-50%); }
+.gallery-next { right:10px; top:50%; transform:translateY(-50%); }
+.product-card-gallery { position:relative; }
+.card-gallery-arrow { width:30px; height:30px; top:50%; transform:translateY(-50%); font-size:1.25rem; }
+.card-gallery-arrow.prev { left:8px; }
+.card-gallery-arrow.next { right:8px; }
+.card-gallery-count { position:absolute; right:8px; bottom:8px; padding:3px 7px; border-radius:12px; background:#1119; color:#fff; font-size:.68rem; }
+.gallery-thumbnails { justify-content:flex-start; max-width:100%; }
+.gallery-thumbnails button { scroll-margin-inline:8px; }
+@media(max-width:575.98px) { .order-progress li small { font-size:.65rem; } .order-progress li>span { width:28px; height:28px; } .order-progress li::before { top:13px; } }
+
+
+.account-avatar { overflow:hidden; flex:none; padding:0; }
+.account-avatar img,.avatar-preview img { display:block; width:100%; height:100%; border-radius:50%; object-fit:cover; }
+.avatar-upload { display:grid; justify-items:start; gap:8px; }
+.avatar-upload>label { font-weight:650; }
+.avatar-upload input[type=file] { max-width:420px; }
+.avatar-preview { display:grid; width:88px; height:88px; overflow:hidden; place-items:center; border:1px solid #e1e2e4; border-radius:50%; background:#f5f3ef; font-size:2rem; }
+.avatar-preview img { border-radius:50%; }
+.gallery-arrow,.card-gallery-arrow { padding:0; font-size:0; line-height:0; }
+.gallery-arrow::before,.card-gallery-arrow::before { position:absolute; top:50%; left:50%; width:10px; height:10px; border-top:2px solid currentColor; border-right:2px solid currentColor; content:""; }
+.gallery-arrow.gallery-prev::before,.card-gallery-arrow.prev::before { transform:translate(-50%,-50%) rotate(-135deg); }
+.gallery-arrow.gallery-next::before,.card-gallery-arrow.next::before { transform:translate(-50%,-50%) rotate(45deg); }
+
+html { scrollbar-gutter: stable; }
+.account-avatar,.avatar-preview { position:relative; }
+.account-avatar::after,.avatar-preview::after { content:attr(data-fallback); color:#75664e; font-size:.9rem; font-weight:700; }
+.account-avatar img,.avatar-preview img { position:absolute; inset:0; z-index:1; }
+
+
+/* Keep product gallery geometry fixed while source photos change. */
+.product-card-gallery { width:100%; aspect-ratio:1.18 / 1; overflow:hidden; }
+.product-card-gallery .product-icon { width:100%; height:100%; aspect-ratio:auto; }
+.product-card-gallery .product-photo { width:100%; height:100%; object-fit:contain; }
+.gallery-main-wrap { position:relative; width:100%; aspect-ratio:1 / 1; min-height:0; flex:0 0 auto; overflow:hidden; }
+.gallery-main { width:100%; height:100%; max-height:none; object-fit:contain; }
+.detail-photo { min-height:0; }
+@media(max-width:767.98px) {
+  .product-card-gallery { aspect-ratio:.95 / 1; }
+}

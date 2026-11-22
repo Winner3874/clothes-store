@@ -62,16 +62,34 @@
                 });
             });
         });
-        document.querySelectorAll("[data-gallery-image]").forEach((button) => {
-            if (button.dataset.bound) return;
-            button.dataset.bound = "true";
-            button.addEventListener("click", () => {
-                const mainImage = document.querySelector("[data-gallery-main]");
-                if (mainImage) mainImage.src = button.dataset.galleryImage;
-                document.querySelectorAll("[data-gallery-image]").forEach((thumbnail) => {
-                    thumbnail.classList.toggle("active", thumbnail === button);
+        document.querySelectorAll("[data-gallery]").forEach((gallery) => {
+            if (gallery.dataset.bound) return;
+            gallery.dataset.bound = "true";
+            const thumbs = [...document.querySelectorAll("[data-gallery-image]")];
+            if (thumbs.length < 2) gallery.querySelectorAll("[data-gallery-step]").forEach((button) => button.hidden = true);
+            const show = (index) => {
+                if (!thumbs.length) return;
+                const selected = (index + thumbs.length) % thumbs.length;
+                gallery.dataset.galleryIndex = String(selected);
+                const image = gallery.querySelector("[data-gallery-main]");
+                if (image) image.src = thumbs[selected].dataset.galleryImage;
+                thumbs.forEach((thumb, i) => {
+                    thumb.classList.toggle("active", i === selected);
+                    if (i === selected) thumb.scrollIntoView({block:"nearest", inline:"nearest", behavior:"smooth"});
                 });
-            });
+            };
+            gallery.querySelectorAll("[data-gallery-step]").forEach((button) => button.addEventListener("click", () => show(Number(gallery.dataset.galleryIndex || 0) + Number(button.dataset.galleryStep))));
+            thumbs.forEach((button, i) => button.addEventListener("click", () => show(i)));
+        });
+        document.querySelectorAll("[data-card-gallery]").forEach((gallery) => {
+            const photos = gallery.dataset.images.split("|").filter(Boolean);
+            let index = 0;
+            gallery.querySelectorAll("[data-card-step]").forEach((button) => button.addEventListener("click", (event) => {
+                event.preventDefault(); event.stopPropagation();
+                index = (index + Number(button.dataset.cardStep) + photos.length) % photos.length;
+                gallery.querySelector("[data-card-photo]").src = photos[index];
+                gallery.querySelector("[data-card-count]").textContent = `${index + 1} / ${photos.length}`;
+            }));
         });
 
         document.querySelectorAll("[data-open-product-modal]").forEach((button) => {

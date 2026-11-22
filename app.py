@@ -7,6 +7,7 @@ import base64
 import hashlib
 import hmac
 import uuid
+from pathlib import Path
 import urllib.parse
 import urllib.request
 import urllib.error
@@ -30,6 +31,7 @@ from database import (
     create_google_user,
     username_exists,
     update_user_password,
+    update_user_avatar,
     get_user_by_id,
     get_favorite_product_ids,
     get_favorite_products,
@@ -123,6 +125,8 @@ def get_current_user():
     user = get_user_by_id(user_id)
     if user is None:
         session.pop("user_id", None)
+    elif not user.get("avatar_url"):
+        user["avatar_url"] = "/static/uploads/avatars/default.png"
     return user
 
 
@@ -390,10 +394,30 @@ def google_register():
                            suggested_username=suggested_username)
 
 
-@app.get("/profile")
+@app.route("/profile", methods=["GET", "POST"])
 @login_required
 def profile():
-    return render_template("profile.html", user=get_current_user())
+    user = get_current_user()
+    if request.method == "POST":
+        photo = request.files.get("avatar")
+        extension = Path(photo.filename or "").suffix.lower()
+        if not photo or not photo.filename:
+            flash("請選擇要上傳的頭貼。", "warning")
+        elif extension not in {".jpg", ".jpeg", ".png", ".webp", ".gif"}:
+            flash("頭貼格式請使用 JPG、PNG、WebP 或 GIF。", "danger")
+        else:
+            data = photo.stream.read(5 * 1024 * 1024 + 1)
+            if len(data) > 5 * 1024 * 1024:
+                flash("頭貼檔案不可超過 5 MB。", "danger")
+            else:
+                filename = f"{user['id']}-{uuid.uuid4().hex}{extension}"
+                avatar_dir = Path(app.root_path) / "static" / "uploads" / "avatars"
+                avatar_dir.mkdir(parents=True, exist_ok=True)
+                (avatar_dir / filename).write_bytes(data)
+                update_user_avatar(user["id"], f"/static/uploads/avatars/{filename}")
+                flash("頭貼已更新。", "success")
+                return redirect(url_for("profile"))
+    return render_template("profile.html", user=user)
 
 
 @app.route("/change-password", methods=["GET", "POST"])
@@ -401,9 +425,12 @@ def profile():
 def change_password():
     user = get_current_user()
     if request.method == "POST":
+        current_password = request.form.get("current_password", "")
         password = request.form.get("password", "")
         confirm_password = request.form.get("confirm_password", "")
-        if len(password) < 8 or len(password) > 256:
+        if not check_password_hash(user["password_hash"], current_password):
+            flash("原密碼不正確。", "danger")
+        elif len(password) < 8 or len(password) > 256:
             flash("新密碼長度需為 8 到 256 個字元。", "danger")
         elif password != confirm_password:
             flash("兩次輸入的新密碼不一致。", "danger")
@@ -462,8 +489,14 @@ def favorite_toggle(product_id):
 @login_required
 def order_history():
     user = get_current_user()
+    statuses = {"pending", "paid", "shipped", "delivered", "cancelled"}
+    selected_status = request.args.get("status", "").strip()
+    if selected_status not in statuses:
+        selected_status = ""
     orders = get_orders_by_user(user["id"])
-    return render_template("order_history.html", orders=orders)
+    if selected_status:
+        orders = [order for order in orders if order["status"] == selected_status]
+    return render_template("order_history.html", orders=orders, selected_status=selected_status)
 
 
 @app.get("/seller")
