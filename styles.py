@@ -1,3 +1,4 @@
+STYLESHEET = r'''
 /* ========================================
    StyleLab Store — Minimalist Black & White
    ======================================== */
@@ -1001,3 +1002,5 @@ html { scrollbar-gutter: stable; }
 @media(max-width:767.98px) {
   .product-card-gallery { aspect-ratio:.95 / 1; }
 }
+
+'''

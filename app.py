@@ -13,7 +13,7 @@ import urllib.request
 import urllib.error
 from functools import wraps
 
-from flask import Flask, abort, flash, jsonify, redirect, render_template, request, send_from_directory, session, url_for
+from flask import Flask, Response, abort, flash, jsonify, redirect, render_template, request, send_from_directory, session, url_for
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from database import (
@@ -49,6 +49,7 @@ from database import (
     log_admin_action,
     get_admin_audit_logs,
 )
+from styles import STYLESHEET
 
 
 def load_local_env():
@@ -116,6 +117,11 @@ def linepay_callback_token(order_id):
 
 # 啟動時確認資料表存在
 init_db()
+
+
+@app.get("/style.css")
+def style_sheet():
+    return Response(STYLESHEET, mimetype="text/css")
 
 
 def get_current_user():
