@@ -13,7 +13,7 @@ import urllib.request
 import urllib.error
 from functools import wraps
 
-from flask import Flask, abort, flash, redirect, render_template, request, send_from_directory, session, url_for
+from flask import Flask, abort, flash, jsonify, redirect, render_template, request, send_from_directory, session, url_for
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from database import (
@@ -472,6 +472,8 @@ def favorite_toggle(product_id):
         return redirect(url_for("login"))
 
     added = toggle_favorite(user["id"], product_id)
+    if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+        return jsonify({"added": added})
     flash("已加入收藏。" if added else "已取消收藏。", "success")
     source = request.form.get("source")
     if source == "favorites":

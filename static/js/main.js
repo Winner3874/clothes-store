@@ -129,6 +129,35 @@
     document.addEventListener("submit", (event) => {
         const form = event.target;
         if (!(form instanceof HTMLFormElement) || form.target === "_blank" || form.method === "dialog") return;
+        if (form.matches(".favorite-form, .favorite-toggle")) {
+            event.preventDefault();
+            const button = form.querySelector("button[type='submit']");
+            if (!button || form.dataset.saving === "true") return;
+            form.dataset.saving = "true";
+            button.disabled = true;
+            fetch(form.action, {
+                method: "POST",
+                body: new FormData(form),
+                headers: { "X-Requested-With": "XMLHttpRequest" },
+                credentials: "same-origin"
+            }).then((response) => {
+                if (!response.ok) throw new Error("Favorite update failed");
+                return response.json();
+            }).then(({ added }) => {
+                if (form.matches(".favorite-form")) {
+                    const label = added ? "取消收藏" : "收藏";
+                    button.textContent = added ? "♥" : "♡";
+                    button.setAttribute("aria-label", label);
+                    button.title = label;
+                } else {
+                    button.textContent = added ? "♥ 取消收藏" : "♡ 加入收藏";
+                }
+            }).catch(() => window.location.reload()).finally(() => {
+                form.dataset.saving = "false";
+                button.disabled = false;
+            });
+            return;
+        }
         if (form.matches("[data-product-order-form]")) {
             const scrollField = form.querySelector("[data-scroll-position]");
             if (scrollField) scrollField.value = String(Math.round(window.scrollY));
